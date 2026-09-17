@@ -38,7 +38,12 @@ ADR-0043 and ADR-0044 in the Geode repo:
 Output: platetree/chains.bin, little-endian:
 
   magic      'ESPT' (4 bytes)
-  version    uint32 = 1
+  version    uint32 = 2
+  node_mode  uint32   0 = node is a polygon index into staticpolygons/
+                        geometry.bin, rotated client-side (RIGID polygons)
+                      1 = node is a lon/lat pair, already reconstructed
+                        (TOPOLOGICAL plates, which are not rigid and so have
+                        no present-day ring to rotate)
   nages      uint32
   nplates    uint32                 distinct plate ids appearing anywhere
   plate_ids  int32 * nplates        sorted; every other plate reference below
@@ -56,9 +61,11 @@ Output: platetree/chains.bin, little-endian:
                                      anchor
     chains     packed               each: uint32 length then that many indices
     present    int32 * npresent     indices, sorted
-    poly_of    int32 * npresent     index of the defining polygon within
-                                     staticpolygons/geometry.bin, parallel to
-                                     `present`
+    poly_of    int32 * npresent     node_mode 0 only: index of the defining
+                                     polygon within staticpolygons/geometry.bin,
+                                     parallel to `present`
+    node_ll    float32 * 2 * npresent  node_mode 1 only: (lon, lat) per plate,
+                                     parallel to `present`
     group_of   int32 * npresent     locked-group id, parallel to `present`;
                                      ids are per-age and carry no meaning
                                      across ages
@@ -254,22 +261,47 @@ def build_polygon_index(static_polygon_features):
     return index_of
 
 
-def export_plate_tree(model_name, static_polygon_files, rotation_files,
-                      ages, out_path, anchor=0):
+def export_plate_tree(model_name, polygon_files, rotation_files,
+                      ages, out_path, anchor=0, polygon_type="static"):
+    """Export a Plate Tree built from either rigid static polygons or resolved
+    topologies -- gprm's own `polygon_type` option (see
+    `utils.platetree.write_trees_to_file`), which its PlateTree class carries a
+    `#TODO handle dynamic polygons` note about.
+
+    The two differ in more than which features get loaded, and the difference
+    is what forces two node modes in the file format. A static polygon is
+    digitised present-day and rotated, so a node can be exported as "this ring,
+    rotated by its plate" and stays continuous at any age the client asks for.
+    A topological plate is RESOLVED at each age from its bounding features --
+    it has no present-day geometry, its shape changes, and plates appear and
+    vanish outright -- so its node can only be exported as a position, at the
+    ages actually sampled.
+    """
     features = pygplates.FeatureCollection()
-    for f in static_polygon_files:
+    for f in polygon_files:
         features.add(pygplates.FeatureCollection(str(f)))
     rotation_model = pygplates.RotationModel([str(f) for f in rotation_files])
 
-    polygon_index_of = build_polygon_index(features)
+    topological = polygon_type in ("topological", "dynamic")
+    node_mode = 1 if topological else 0
+    polygon_index_of = {} if topological else build_polygon_index(features)
     age_max = float(max(ages))
 
     per_age, all_plates = [], set()
     for t in ages:
         t = float(t)
         reconstructed = []
-        pygplates.reconstruct(features, rotation_model, reconstructed, t,
-                              anchor_plate_id=anchor)
+        if topological:
+            pygplates.resolve_topologies(features, rotation_model, reconstructed, t,
+                                         anchor_plate_id=anchor)
+            # resolve_topologies also yields line features (ResolvedTopological
+            # Line); only closed boundaries have an area and a centroid, and
+            # get_polygon_centroids() type-checks for exactly this class.
+            reconstructed = [r for r in reconstructed
+                             if isinstance(r, pygplates.ResolvedTopologicalBoundary)]
+        else:
+            pygplates.reconstruct(features, rotation_model, reconstructed, t,
+                                  anchor_plate_id=anchor)
         present = platetree.get_unique_plate_ids_from_reconstructed_features(
             reconstructed)
         if not present:
@@ -280,7 +312,11 @@ def export_plate_tree(model_name, static_polygon_files, rotation_files,
         chains = platetree.get_plate_chains(present, tree)
         roots = platetree.get_root_static_polygon_plate_ids(tree, present)
         paths = [root_path_to_anchor(tree, r) for r in roots]
-        poly_of = defining_polygon_indices(reconstructed, polygon_index_of)
+        if topological:
+            centroids = platetree.get_polygon_centroids(reconstructed)
+            poly_of = None
+        else:
+            poly_of = defining_polygon_indices(reconstructed, polygon_index_of)
         group_of = locked_groups(rotation_model, sorted(present), t, age_max, anchor)
 
         present_sorted = sorted(int(p) for p in present)
@@ -290,7 +326,10 @@ def export_plate_tree(model_name, static_polygon_files, rotation_files,
             "roots": [int(r) for r in roots],
             "paths": paths,
             "present": present_sorted,
-            "poly_of": [poly_of.get(p, -1) for p in present_sorted],
+            "poly_of": (None if topological
+                        else [poly_of.get(p, -1) for p in present_sorted]),
+            "node_ll": ([(float(centroids[p][1]), float(centroids[p][0]))
+                         for p in present_sorted] if topological else None),
             "group_of": [group_of[p] for p in present_sorted],
         })
         for c in chains:
@@ -312,7 +351,7 @@ def export_plate_tree(model_name, static_polygon_files, rotation_files,
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "wb") as fh:
         fh.write(b"ESPT")
-        fh.write(struct.pack("<III", 1, len(live), len(plate_ids)))
+        fh.write(struct.pack("<IIII", 2, node_mode, len(live), len(plate_ids)))
         np.array(plate_ids, dtype="<i4").tofile(fh)
         np.array([a["age"] for a in live], dtype="<f4").tofile(fh)
 
@@ -333,13 +372,18 @@ def export_plate_tree(model_name, static_polygon_files, rotation_files,
             np.array(packed_paths, dtype="<i4").tofile(fh)
             np.array(packed_chains, dtype="<i4").tofile(fh)
             np.array([index_of[p] for p in a["present"]], dtype="<i4").tofile(fh)
-            np.array(a["poly_of"], dtype="<i4").tofile(fh)
+            if node_mode == 1:
+                np.array(a["node_ll"], dtype="<f4").tofile(fh)
+            else:
+                np.array(a["poly_of"], dtype="<i4").tofile(fh)
             np.array(a["group_of"], dtype="<i4").tofile(fh)
 
-    missing = sum(1 for a in live for x in a["poly_of"] if x < 0)
+    missing = (0 if node_mode == 1
+               else sum(1 for a in live for x in a["poly_of"] if x < 0))
     mb = out_path.stat().st_size / 1024 / 1024
-    print(f"\n  plate tree      {len(live)} ages, {len(plate_ids)} distinct plate ids, "
-          f"{mb:.2f} MB")
+    kind = "topological" if topological else "static"
+    print(f"\n  plate tree      {kind}: {len(live)} ages, {len(plate_ids)} "
+          f"distinct plate ids, {mb:.2f} MB")
     if missing:
         print(f"  WARNING         {missing} nodes have no defining polygon index")
     return len(live)

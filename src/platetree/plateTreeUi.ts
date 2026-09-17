@@ -3,24 +3,36 @@ import GUI from 'lil-gui';
 import { PROJECTION_LABEL, PROJECTION_ORDER, type ProjectionMode } from '../core/projection';
 import { ALL_THEMES, type ThemeId } from '../core/theme';
 
+/** Which polygons the Plate Tree is built from -- gprm's own `polygon_type`
+ *  option. Not a rendering choice: the two trees have different plates, so
+ *  they are different statements about the model. */
+export type TreeSource = 'static' | 'topological';
+
 export interface PlateTreeViewState {
   age: number;
   projection: ProjectionMode;
   theme: ThemeId;
+  treeSource: TreeSource;
+  /** Which longitude sits at the middle of a flat map. */
+  centreLon: number;
   showLocked: boolean;
   showLabels: boolean;
   colorByGroup: boolean;
   showCoastlines: boolean;
+  showPlates: boolean;
 }
 
 export interface PlateTreeUiHooks {
   onAge(age: number): void;
   onProjection(mode: ProjectionMode): void;
   onTheme(id: ThemeId): void;
+  onTreeSource(s: TreeSource): void;
+  onCentreLon(lon: number): void;
   onShowLocked(v: boolean): void;
   onShowLabels(v: boolean): void;
   onColorByGroup(v: boolean): void;
   onShowCoastlines(v: boolean): void;
+  onShowPlates(v: boolean): void;
   onClearSelection(): void;
 }
 
@@ -29,6 +41,8 @@ export class PlateTreeUi {
   private status: HTMLDivElement;
   private circuit: HTMLDivElement;
   private ageController: ReturnType<GUI['add']>;
+  private centreController: ReturnType<GUI['add']>;
+  private sourceController: ReturnType<GUI['add']>;
 
   constructor(
     private view: PlateTreeViewState,
@@ -50,12 +64,26 @@ export class PlateTreeUi {
       // field lil-gui does not own.
       .onChange((v: ProjectionMode) => this.hooks.onProjection(v));
 
+    // Live only on a flat map -- the globe has free orbit, which is the same
+    // control by other means. Kept in the panel rather than hidden so its
+    // value is visible when a flat Projection is selected.
+    this.centreController = this.gui
+      .add(this.view, 'centreLon', -180, 180, 1)
+      .name('centre lon')
+      .onChange((v: number) => this.hooks.onCentreLon(v));
+
     this.gui
       .add(this.view, 'theme', ALL_THEMES.map((t) => t.id))
       .name('theme')
       .onChange((v: ThemeId) => this.hooks.onTheme(v));
 
     const tree = this.gui.addFolder('tree');
+    this.sourceController = tree
+      .add(this.view, 'treeSource', ['static', 'topological'])
+      .name('built from')
+      .onChange((v: TreeSource) => this.hooks.onTreeSource(v));
+    tree.add(this.view, 'showPlates').name('plate mosaic')
+      .onChange((v: boolean) => this.hooks.onShowPlates(v));
     tree.add(this.view, 'showLocked').name('locked links')
       .onChange((v: boolean) => this.hooks.onShowLocked(v));
     tree.add(this.view, 'colorByGroup').name('colour by group')
@@ -138,6 +166,18 @@ export class PlateTreeUi {
   }
 
   projectionLabel(mode: ProjectionMode): string { return PROJECTION_LABEL[mode]; }
+
+  /** Grey the centre-longitude slider out on the globe, where it does nothing
+   *  -- an orbiting camera already chooses what faces the viewer. */
+  setCentreEnabled(on: boolean): void {
+    this.centreController.enable(on);
+  }
+
+  /** A model with no dynamic polygons has no topological tree to offer, so the
+   *  choice is removed rather than left to fail on selection. */
+  setTopologicalAvailable(on: boolean): void {
+    this.sourceController.enable(on);
+  }
 
   dispose(): void {
     this.gui.destroy();

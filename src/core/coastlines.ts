@@ -7,7 +7,7 @@ import { GEOGRAPHIC_GLSL } from './glsl/geographic';
 import { R_SURFACE, LIGHT_DIR, vec3ToLonLat } from './constants';
 import type { ResolvedTheme } from './theme';
 import { fetchVolumeBytes } from './volume';
-import { composeQuaternions, referenceRotationAt, rotationAt } from './rotation';
+import { centralMeridianRotation, composeQuaternions, referenceRotationAt, rotationAt } from './rotation';
 import {
   flatHalfWidth, isFlat, lonLatToProjected, type ProjectionMode,
 } from './projection';
@@ -159,6 +159,11 @@ export class Coastlines {
    *  setAge(). Set via setReferencePlate(), which also re-renders the
    *  current age. */
   private referencePlateId = 0;
+  /** Central meridian, in degrees: which longitude sits at the middle of a
+   *  flat map. Ignored on the globe, where the camera already orbits freely.
+   *  Composed with the Reference Plate rotation rather than handled separately
+   *  -- both are view rotations applied before projection. */
+  private centralMeridianDeg = 0;
   private currentAge = 0;
   /** Only affects the LINE set (see setAge()'s mode branch) -- land fill is
    *  never shown in a wrapper that also offers Plate Carrée today (climate.html
@@ -297,6 +302,15 @@ export class Coastlines {
     this.setAge(this.currentAge);
   }
 
+  /** Which longitude sits at the centre of a flat map. See
+   *  centralMeridianRotation(). Rebuilds the current age's geometry, which is
+   *  what actually moves the continents. */
+  setCentralMeridian(lonDeg: number): void {
+    if (lonDeg === this.centralMeridianDeg) return;
+    this.centralMeridianDeg = lonDeg;
+    this.setAge(this.currentAge);
+  }
+
   /** Switch the LINE set's positions between Globe and Plate Carrée -- see
    *  `mode`'s own doc comment for why only the lines, not land. Rebuilds via
    *  setAge() rather than reprojecting the existing buffer in place, same
@@ -314,7 +328,12 @@ export class Coastlines {
     let vw = 0;   // land vertex count
     let iw = 0;   // land index cursor
 
-    const qRef = referenceRotationAt(this.table, this.referencePlateId, age);
+    // Central meridian outermost: slide the map sideways AFTER the Reference
+    // Plate has oriented it, so the two controls stay independent.
+    const qRef = composeQuaternions(
+      centralMeridianRotation(this.centralMeridianDeg),
+      referenceRotationAt(this.table, this.referencePlateId, age),
+    );
 
     for (const line of this.data) {
       // Ages increase into the past, so appearAge is the LARGER value. A
@@ -467,6 +486,43 @@ export class Coastlines {
    * full opacity too, and that changes what the existing renders look like for
    * no reason.
    */
+  /**
+   * Per-layer colour and opacity, for a caller drawing a SECOND Coastlines
+   * instance as a basemap under the first -- the plate mosaic in the Plate Tree
+   * viewer, which is the same triangulated-mesh format but must not look like
+   * the continents on top of it.
+   *
+   * Separate from applyTheme(), which resolves a Theme's land/outline roles and
+   * is right for the primary instance. A caller using these is deliberately
+   * stepping outside the Theme's own choices for one layer, so it owns keeping
+   * that layer legible against whatever Theme is active.
+   */
+  setLandColor(hex: number): void {
+    this.landMat.uniforms.uColor.value = passthroughColor(hex);
+  }
+
+  setLineColor(hex: number): void {
+    this.lineMat.uniforms.uColor.value = passthroughColor(hex);
+  }
+
+  setLandOpacity(v: number): void {
+    this.landMat.uniforms.uOpacity.value = v;
+    const want = v < 1;
+    if (this.landMat.transparent !== want) {
+      this.landMat.transparent = want;
+      this.landMat.needsUpdate = true;
+    }
+  }
+
+  setLineOpacity(v: number): void {
+    this.lineMat.uniforms.uOpacity.value = v;
+    const want = v < 1;
+    if (this.lineMat.transparent !== want) {
+      this.lineMat.transparent = want;
+      this.lineMat.needsUpdate = true;
+    }
+  }
+
   setOpacity(v: number): void {
     for (const m of [this.lineMat, this.landMat]) {
       m.uniforms.uOpacity.value = v;

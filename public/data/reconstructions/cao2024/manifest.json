@@ -13,10 +13,14 @@
   },
   "static_polygons": {
     "geometry": "staticpolygons/geometry.bin",
+    "mesh": "staticpolygons/mesh.bin",
     "rotations": "coastlines/rotations.json",
     "plate_names": "staticpolygons/plate_names.json"
   },
   "plate_tree": "platetree/chains.bin",
+  "has_topological_tree": true,
   "has_plate_names": true,
-  "tree_ages": 361
+  "tree_ages": 361,
+  "plate_tree_topological": "platetree/chains_topological.bin",
+  "topological_tree_ages": 361
 }

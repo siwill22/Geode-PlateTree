@@ -128,3 +128,24 @@ export function toRenderFrameRotation(q: Quaternion): Quaternion {
     conjugateQuaternion(GEOGRAPHIC_TO_RENDER_FRAME),
   );
 }
+
+/**
+ * A view rotation that puts `lonDeg` at the centre of a flat map -- the
+ * central meridian, the one control an atlas-style world map always has.
+ *
+ * In the GEOGRAPHIC frame (Z through the pole), so it composes directly with
+ * `referenceRotationAt()`'s result and with a plate's own rotation, and is the
+ * frame `core/boundaries.ts`'s and `core/flatProjector.ts`'s
+ * `setReferenceRotation()` both expect. Use `toRenderFrameRotation()` for a
+ * consumer working in the viewer's Y-up frame instead.
+ *
+ * Rotating about the geographic pole by t maps longitude to longitude + t, so
+ * bringing `lonDeg` to display longitude 0 needs t = -lonDeg. Being a rotation
+ * about the pole it changes no latitude, which is what distinguishes it from a
+ * Reference Plate rotation and why the two compose without interfering: a
+ * central meridian slides the map sideways, a Reference Plate re-orients it.
+ */
+export function centralMeridianRotation(lonDeg: number): Quaternion {
+  const half = -lonDeg * (Math.PI / 180) / 2;
+  return [0, 0, Math.sin(half), Math.cos(half)];
+}

@@ -2,7 +2,8 @@ import { Mesh, ShaderMaterial, type BufferGeometry } from 'three';
 
 import { passthroughColor } from './material';
 import { LIGHT_DIR, R_SURFACE } from './constants';
-import { createSurfaceGeometry, isFlat, type ProjectionMode } from './projection';
+import { createSurfaceGeometry, isFlat, PROJECTION_UNIFORM, type ProjectionMode } from './projection';
+import { GEOGRAPHIC_GLSL } from './glsl/geographic';
 import { DEFAULT_THEME, resolveTheme, type ResolvedTheme } from './theme';
 
 /**
@@ -44,11 +45,24 @@ void main() {
  * darken the whole plane by a constant.
  */
 const FRAG = /* glsl */ `
+${GEOGRAPHIC_GLSL}
 uniform vec3 uColor;
 uniform vec3 uLightDir;
 uniform float uShadeStrength;
+uniform float uProjectionMode; // 0 = globe, 1 = plate carree, 2 = robinson
 varying vec3 vWorldPos;
 void main() {
+  // Robinson's boundary is a CURVE, but its geometry is the bounding
+  // rectangle of the map (see createSurfaceGeometry) -- so the corners of that
+  // rectangle are not on the Earth and have to be discarded here. Without
+  // this the ocean paints the full rectangle and Robinson renders with
+  // straight sides, which is exactly what it is not.
+  //
+  // The other surfaces in core/ (material.ts's field sphere, coastlines'
+  // land) already do this. OceanSurface did not, and could not have been
+  // caught in Geode: the wrappers that mount an OceanSurface are globe-only
+  // there, so the plane was never built in the first place.
+  if (uProjectionMode > 1.5 && robinsonOffMap(worldToGeographicRobinson(vWorldPos))) discard;
   vec3 n = normalize(vWorldPos);
   float ndl = dot(n, normalize(uLightDir)) * 0.5 + 0.5;
   float shade = mix(1.0, 0.5 + 0.5 * ndl * ndl, uShadeStrength);
@@ -70,6 +84,7 @@ export class OceanSurface {
         uColor: { value: passthroughColor(resolveTheme(DEFAULT_THEME).water) },
         uLightDir: { value: LIGHT_DIR.clone() },
         uShadeStrength: { value: isFlat(mode) ? 0 : 1 },
+        uProjectionMode: { value: PROJECTION_UNIFORM[mode] },
       },
     });
     this.mesh = new Mesh(this.buildGeometry(mode), this.material);
@@ -89,6 +104,7 @@ export class OceanSurface {
     this.mesh.geometry.dispose();
     this.mesh.geometry = this.buildGeometry(mode);
     this.material.uniforms.uShadeStrength.value = isFlat(mode) ? 0 : 1;
+    this.material.uniforms.uProjectionMode.value = PROJECTION_UNIFORM[mode];
   }
 
   applyTheme(theme: ResolvedTheme): void {

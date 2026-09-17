@@ -8,7 +8,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "check:platetree": "node scripts/check_platetree.mjs"
+    "check:projections": "node scripts/check_projections.mjs"
   },
   "license": "MIT",
   "dependencies": {

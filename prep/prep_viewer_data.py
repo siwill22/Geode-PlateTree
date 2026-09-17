@@ -43,6 +43,9 @@ def main():
                          "tree topology and group membership snap to this.")
     ap.add_argument("--anchor", type=int, default=0)
     ap.add_argument("--fill-spacing-deg", type=float, default=2.0)
+    ap.add_argument("--skip-topological", action="store_true",
+                    help="don't export the topological tree even if the model "
+                         "has dynamic polygons")
     ap.add_argument("--out", type=Path, default=Path("public/data"))
     args = ap.parse_args()
 
@@ -88,6 +91,16 @@ def main():
         ln, lp = line_counts.get(pid, (0, 0))
         line_counts[pid] = (ln + n, lp + npts)
 
+    # The static polygons AGAIN, this time as a triangulated mesh in the same
+    # format coastlines use, so the viewer can draw the whole plate mosaic --
+    # oceanic crust included, not just the continents the coastline file
+    # carries. Same geometry as geometry.bin above; a different shape of it,
+    # because that one is rings for point-in-polygon and node centroids while
+    # this one is triangles for the GPU.
+    print("\nexporting static polygon mesh ...")
+    export_geometry(static_polygon_files,
+                    out / "staticpolygons" / "mesh.bin", args.fill_spacing_deg)
+
     plate_names = export_plate_names(
         static_polygon_files, out / "staticpolygons" / "plate_names.json")
     has_plate_names = plate_names is not None
@@ -99,9 +112,26 @@ def main():
     export_rotations(rotation_files, plate_ids, ages, args.anchor,
                      out / "coastlines" / "rotations.json", line_counts)
 
-    print(f"\nexporting plate tree over {len(ages)} ages ...")
+    print(f"\nexporting plate tree (static polygons) over {len(ages)} ages ...")
     n_ages = export_plate_tree(args.model, static_polygon_files, rotation_files,
-                               ages, out / "platetree" / "chains.bin", args.anchor)
+                               ages, out / "platetree" / "chains.bin", args.anchor,
+                               polygon_type="static")
+
+    # gprm's own polygon_type option. A topological tree is a genuinely
+    # different statement about the model -- resolved plates, not rigid blocks --
+    # so it is a second tree the viewer switches between, never a replacement.
+    has_topological = False
+    topo_ages = 0
+    dynamic_files = list(m.dynamic_polygon_files)
+    if dynamic_files and not args.skip_topological:
+        print(f"\nexporting plate tree (topologies) over {len(ages)} ages ...")
+        topo_ages = export_plate_tree(
+            args.model, dynamic_files, rotation_files,
+            ages, out / "platetree" / "chains_topological.bin", args.anchor,
+            polygon_type="topological")
+        has_topological = topo_ages > 0
+    elif not dynamic_files:
+        print("\nno dynamic polygons in this model -- no topological tree")
 
     manifest = {
         "id": recon_id,
@@ -118,12 +148,17 @@ def main():
         },
         "static_polygons": {
             "geometry": "staticpolygons/geometry.bin",
+            "mesh": "staticpolygons/mesh.bin",
             "rotations": "coastlines/rotations.json",
         },
         "plate_tree": "platetree/chains.bin",
+        "has_topological_tree": has_topological,
         "has_plate_names": has_plate_names,
         "tree_ages": n_ages,
     }
+    if has_topological:
+        manifest["plate_tree_topological"] = "platetree/chains_topological.bin"
+        manifest["topological_tree_ages"] = topo_ages
     if has_plate_names:
         manifest["static_polygons"]["plate_names"] = "staticpolygons/plate_names.json"
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2))

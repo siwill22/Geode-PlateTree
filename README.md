@@ -28,7 +28,31 @@ This viewer shows the hierarchy, on the globe, through time.
 - **Yellow nodes** are **root plates** — the plates closest to the anchor that
   carry geometry. There is often more than one (four at 500 Ma).
 
+- **The plate mosaic** is every static polygon, not just the continents — so
+  oceanic crust, and the seafloor-age fabric it is built from, is visible. The
+  continents are outlined on top of it. Toggle it off for continents only.
+- **Built from** switches between the tree computed from rigid **static
+  polygons** (497 plates at 0 Ma) and the one computed from resolved
+  **topologies** (46). This is gprm's own `polygon_type` option, and the two
+  are different statements about the model rather than two drawings of one.
+  The contrast is the interesting part: static gives 70 moving / 426 locked
+  links, topological gives 37 moving / 7 locked. Real plates mostly move
+  relative to each other; static-polygon fragments are mostly bookkeeping.
+- **Centre lon** slides the central meridian on a flat map, so the Pacific can
+  be put in the middle instead of split down the antimeridian. Live in Robinson
+  and Plate Carrée; disabled on the globe, where orbiting does the same job.
+
 **Click a plate** to see its full circuit to the anchor.
+
+### Node positions differ between the two trees
+
+A static polygon is digitised present-day and rotated, so its node is exported
+as "this ring, rotated by this plate" and moves continuously at any age the
+slider asks for. A resolved topological plate has no present-day geometry — it
+is rebuilt from its bounding features at each age, changes shape, and appears
+and vanishes outright — so its node can only be exported as a position, at the
+ages actually sampled. The file format carries a node mode for exactly this,
+and the topological tree does not interpolate between samples.
 
 ## Building
 

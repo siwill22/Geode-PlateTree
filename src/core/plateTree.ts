@@ -24,18 +24,31 @@ export interface PlateTreeFrame {
   rootPaths: number[][];
   /** Plates carrying geometry at this age, sorted. */
   present: number[];
-  /** Index into the static-polygon array of the polygon defining each present
-   *  plate's node, parallel to `present`. */
+  /** Node mode 0 only: index into the static-polygon array of the polygon
+   *  defining each present plate's node, parallel to `present`. */
   polyOf: number[];
+  /** Node mode 1 only: each present plate's already-reconstructed node
+   *  position as [lon, lat], parallel to `present`. A topological plate is
+   *  resolved at each age rather than rotated from a present-day ring, so
+   *  there is nothing to rotate client-side and the position is what gets
+   *  exported. */
+  nodeLonLat: [number, number][];
   /** Locked Group id per present plate, parallel to `present`. Ids are
    *  per-age and carry NO meaning across ages -- group 3 at 100 Ma and group 3
    *  at 105 Ma are unrelated. */
   groupOf: number[];
 }
 
+/** How a frame's Tree Node positions are stored. See PlateTreeFrame. */
+export type NodeMode = 'polygon' | 'lonlat';
+
 export interface PlateTreeData {
   ages: number[];
   frames: PlateTreeFrame[];
+  /** `polygon` for a tree built from rigid static polygons (the client rotates
+   *  the named ring to any continuous age); `lonlat` for one built from
+   *  resolved topologies, which have no present-day ring to rotate. */
+  nodeMode: NodeMode;
 }
 
 export function parsePlateTree(buf: ArrayBuffer): PlateTreeData {
@@ -43,13 +56,14 @@ export function parsePlateTree(buf: ArrayBuffer): PlateTreeData {
   const magic = String.fromCharCode(dv.getUint8(0), dv.getUint8(1), dv.getUint8(2), dv.getUint8(3));
   if (magic !== 'ESPT') throw new Error(`bad plate-tree magic: ${magic}`);
   const version = dv.getUint32(4, true);
-  if (version !== 1) {
-    throw new Error(`plate tree is version ${version}, expected 1 -- re-run prep_platetree.py`);
+  if (version !== 2) {
+    throw new Error(`plate tree is version ${version}, expected 2 -- re-run prep_platetree.py`);
   }
-  const nages = dv.getUint32(8, true);
-  const nplates = dv.getUint32(12, true);
+  const nodeMode: NodeMode = dv.getUint32(8, true) === 1 ? 'lonlat' : 'polygon';
+  const nages = dv.getUint32(12, true);
+  const nplates = dv.getUint32(16, true);
 
-  let o = 16;
+  let o = 20;
   const plateIds = new Int32Array(buf.slice(o, o + nplates * 4)); o += nplates * 4;
   const ages = new Float32Array(buf.slice(o, o + nages * 4)); o += nages * 4;
 
@@ -82,15 +96,25 @@ export function parsePlateTree(buf: ArrayBuffer): PlateTreeData {
 
     const present: number[] = [];
     for (let i = 0; i < npresent; i++) { present.push(plateIds[dv.getInt32(o, true)]); o += 4; }
+
     const polyOf: number[] = [];
-    for (let i = 0; i < npresent; i++) { polyOf.push(dv.getInt32(o, true)); o += 4; }
+    const nodeLonLat: [number, number][] = [];
+    if (nodeMode === 'lonlat') {
+      for (let i = 0; i < npresent; i++) {
+        nodeLonLat.push([dv.getFloat32(o, true), dv.getFloat32(o + 4, true)]);
+        o += 8;
+      }
+    } else {
+      for (let i = 0; i < npresent; i++) { polyOf.push(dv.getInt32(o, true)); o += 4; }
+    }
+
     const groupOf: number[] = [];
     for (let i = 0; i < npresent; i++) { groupOf.push(dv.getInt32(o, true)); o += 4; }
 
-    frames.push({ age: ages[f], chains, roots, rootPaths, present, polyOf, groupOf });
+    frames.push({ age: ages[f], chains, roots, rootPaths, present, polyOf, nodeLonLat, groupOf });
   }
 
-  return { ages: Array.from(ages), frames };
+  return { ages: Array.from(ages), frames, nodeMode };
 }
 
 /** A Tree Node, positioned in the GEOGRAPHIC frame (X -> 0N/0E, Y -> 0N/90E,
@@ -135,10 +159,30 @@ export function frameIndexFor(data: PlateTreeData, age: number): number {
  */
 export function nodesAt(
   frame: PlateTreeFrame, polygons: StaticPolygon[], table: RotationTable, age: number,
+  nodeMode: NodeMode = 'polygon',
 ): Map<number, TreeNode> {
   const out = new Map<number, TreeNode>();
   for (let i = 0; i < frame.present.length; i++) {
     const plateId = frame.present[i];
+
+    if (nodeMode === 'lonlat') {
+      // A resolved topological plate is rebuilt from its bounding features at
+      // each age -- it has no present-day ring and no single rotation that
+      // places it -- so its node comes straight from the export, at the
+      // sampled age. Unlike the polygon mode below, this does NOT move
+      // continuously as the slider is dragged between samples; it cannot,
+      // because the plate itself is only defined where it was resolved.
+      const [lon, lat] = frame.nodeLonLat[i];
+      const la = lat * DEG, lo = lon * DEG;
+      const cl = Math.cos(la);
+      out.set(plateId, {
+        plateId,
+        group: frame.groupOf[i],
+        xyz: [cl * Math.cos(lo), cl * Math.sin(lo), Math.sin(la)],
+      });
+      continue;
+    }
+
     const pi = frame.polyOf[i];
     if (pi < 0 || pi >= polygons.length) continue;
     const c = polygonBoundaryCentroid(polygons[pi].points);
@@ -335,8 +379,20 @@ export class PlateTreeOverlay {
   setAge(age: number): void {
     if (!this.data || !this.table) return;
     this.frame = this.data.frames[frameIndexFor(this.data, age)];
-    this.nodes = nodesAt(this.frame, this.polygons, this.table, age);
+    this.nodes = nodesAt(this.frame, this.polygons, this.table, age, this.data.nodeMode);
   }
+
+  /** Swap which Plate Tree is shown -- rigid static polygons or resolved
+   *  topologies. A different statement about the model, not a different
+   *  rendering of one, so the selection is cleared: plate ids do not carry
+   *  over (a topological plate id need not exist in the static set at all). */
+  setData(data: PlateTreeData): void {
+    this.data = data;
+    this.selected = null;
+    this.frame = null;
+  }
+
+  get nodeMode(): NodeMode { return this.data?.nodeMode ?? 'polygon'; }
 
   get currentFrame(): PlateTreeFrame | null { return this.frame; }
 
@@ -390,8 +446,12 @@ export class PlateTreeOverlay {
     const dpr = Math.min(devicePixelRatio, 2);
     if (this.canvas.width !== Math.round(width * dpr)) this.applyRect();
 
-    if (isFlat(this.mode)) this.flatProjector!.update(width, height);
+    const flat = isFlat(this.mode);
+    if (flat) this.flatProjector!.update(width, height);
     else this.projector.update(width, height);
+
+    const halfWidth = flat ? this.flatProjector!.mapHalfWidth : 0;
+    const seamJumpPx = flat && halfWidth > 0 ? halfWidth : Infinity;
 
     const circuit = this.selectedCircuit;
     const onCircuit = new Set(circuit ?? []);
@@ -409,18 +469,36 @@ export class PlateTreeOverlay {
 
       this.ctx.beginPath();
       let started = false;
+      let prevX = 0;
       // A long link needs more segments; a short one is a straight line at
-      // screen scale and subdividing it is wasted work.
+      // screen scale and subdividing it is wasted work. On a flat map the
+      // density also sets how close to the seam the break lands, so a link
+      // crossing the antimeridian is cut within a few pixels of the edge.
       const arcDeg = Math.acos(Math.max(-1, Math.min(1,
         a.xyz[0] * b.xyz[0] + a.xyz[1] * b.xyz[1] + a.xyz[2] * b.xyz[2]))) / DEG;
-      const steps = Math.max(2, Math.min(48, Math.ceil(arcDeg / 3)));
+      const steps = Math.max(2, Math.min(96, Math.ceil(arcDeg / 2)));
+      // Half the map in SCREEN pixels, measured through the live camera by
+      // FlatProjector.mapHalfWidth so it tracks pan and zoom. A step that jumps
+      // further than this has wrapped the seam rather than genuinely travelled.
+      // 0 means "before the first update()", i.e. unknown -- disable the test
+      // rather than break every segment.
+      const seamJump = seamJumpPx;
       for (const p of slerpArc(a.xyz, b.xyz, steps)) {
         const s = this.project(p);
         // A null projection means the point is over the horizon (globe) or off
         // the map (flat) -- lift the pen rather than drawing a chord across it.
         if (!s) { started = false; continue; }
+        // The antimeridian. Consecutive points on a great circle are a couple
+        // of degrees apart, so a large jump in screen x can only mean the arc
+        // left one edge of the map and re-entered at the other. Break the path
+        // instead of drawing across: the arc then correctly appears as two
+        // pieces running off opposite edges. Dropping it outright -- what
+        // coastlines.ts does for a single short segment -- would lose the whole
+        // link, and these links are long by nature.
+        if (started && Math.abs(s[0] - prevX) > seamJump) started = false;
         if (!started) { this.ctx.moveTo(s[0], s[1]); started = true; }
         else this.ctx.lineTo(s[0], s[1]);
+        prevX = s[0];
       }
       this.ctx.setLineDash(patched ? this.style.patchedDash : []);
       this.ctx.strokeStyle = lit ? this.style.highlight

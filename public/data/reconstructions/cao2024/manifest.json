@@ -1,0 +1,22 @@
+{
+  "id": "cao2024",
+  "name": "Cao et al. 2024",
+  "citation": "Cao, X., et al. (2024), Geoscience Frontiers",
+  "source_fetch": "fetch_Cao2024",
+  "age_min": 0.0,
+  "age_max": 1800.0,
+  "age_step": 5.0,
+  "anchor_plate_id": 0,
+  "coastlines": {
+    "geometry": "coastlines/geometry.bin",
+    "rotations": "coastlines/rotations.json"
+  },
+  "static_polygons": {
+    "geometry": "staticpolygons/geometry.bin",
+    "rotations": "coastlines/rotations.json",
+    "plate_names": "staticpolygons/plate_names.json"
+  },
+  "plate_tree": "platetree/chains.bin",
+  "has_plate_names": true,
+  "tree_ages": 361
+}

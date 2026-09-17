@@ -1,0 +1,47 @@
+/*
+ * The Multi-Globe icon + flyout: a single circular button at the screen's
+ * top-left corner that expands a small menu below it ("+ Add globe" and
+ * whichever Synced Field toggles the page offers) -- the collapsed-until-
+ * asked-for convention index.html's own #preset-toggle/#presets established
+ * first. One shared stylesheet so every HTML entry looks the same instead
+ * of drifting the way independently copy-pasted #toolbar rules once did.
+ *
+ * `#globe-menu-toggle[hidden]` matters for the four generator wrapper types,
+ * where Multi-Globe is a recipe opt-in (see core/multiGlobeMenu.ts) -- the
+ * button starts hidden in markup and main.ts un-hides it only if the recipe
+ * asked for it. climate.html/index.html/valdes.html wire it unconditionally
+ * and never set `hidden`, since Multi-Globe there isn't recipe-gated.
+ */
+#globe-menu-toggle {
+  position: fixed; left: 12px; top: 8px; z-index: 20;
+  width: 32px; height: 32px; padding: 0;
+  display: flex; align-items: center; justify-content: center;
+  font: inherit; color: #d8dee4; background: #1b1f24;
+  border: 1px solid #3a4048; border-radius: 50%; cursor: pointer;
+}
+/* Needed because #globe-menu-toggle above is an ID selector -- it already
+   beats the UA stylesheet's bare-attribute [hidden] rule, so without this,
+   `hidden` on the button has no effect and it shows regardless of whether
+   the recipe declared multiGlobe (the button was visible but its "+ Add
+   globe" click handler was never wired -- a real, previously-latent bug,
+   not cosmetic). */
+#globe-menu-toggle[hidden] { display: none; }
+#globe-menu-toggle:hover { background: #262b32; }
+#globe-menu-toggle svg { display: block; width: 18px; height: 18px; }
+#globe-menu {
+  position: fixed; left: 12px; top: 48px; z-index: 20;
+  width: 160px; padding: 8px; border-radius: 6px;
+  background: #1b1f24; border: 1px solid #3a4048;
+  display: flex; flex-direction: column; gap: 6px;
+}
+#globe-menu[hidden] { display: none; }
+#globe-menu button, .sync-toggle {
+  font: inherit; color: #d8dee4; background: #262b32;
+  border: 1px solid #3a4048; border-radius: 4px;
+  padding: 6px 10px; cursor: pointer;
+}
+#globe-menu button { text-align: left; }
+#globe-menu button:hover { background: #2f353d; }
+.sync-toggle {
+  display: flex; align-items: center; gap: 5px;
+}

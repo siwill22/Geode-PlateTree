@@ -1,0 +1,35 @@
+/*
+ * lil-gui injects its own stylesheet at runtime, inserted before any
+ * <link rel="stylesheet">/<style> already present in <head> (see its
+ * _injectStyles) specifically so a page's own overrides win the cascade --
+ * these rules rely on that ordering rather than on !important. Every HTML
+ * entry point links this file for exactly that reason: it only has to be
+ * present in <head> before main.ts runs, not loaded any particular way.
+ *
+ * The "mixer desk" look: a number slider's knob rendered as its own red
+ * fader-cap capsule (gloss + grip line) instead of lil-gui's default flat
+ * tick, positioned to sit exactly where the border used to, in the padding
+ * .lil-slider reserves via --slider-knob-width.
+ */
+.lil-gui .lil-controller.lil-number .lil-slider {
+  --slider-knob-width: 8px;
+}
+.lil-gui .lil-controller.lil-number .lil-fill {
+  background: #565d66;
+  border-right: none;
+  position: relative;
+}
+.lil-gui .lil-controller.lil-number .lil-fill::after {
+  content: '';
+  position: absolute;
+  top: 0; right: calc(-1 * var(--slider-knob-width));
+  width: var(--slider-knob-width); height: 100%;
+  border-radius: 1.5px;
+  background:
+    linear-gradient(rgba(0, 0, 0, 0.35), rgba(0, 0, 0, 0.35)) center / 100% 2px no-repeat,
+    linear-gradient(180deg, #a83232 0%, #8f2626 50%, #7a1f1f 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.12),
+    0 0 0 1px rgba(0, 0, 0, 0.5),
+    0 1px 2px rgba(0, 0, 0, 0.5);
+}

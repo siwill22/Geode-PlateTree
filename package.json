@@ -1,0 +1,24 @@
+{
+  "name": "plate-tree-viewer",
+  "version": "0.1.0",
+  "description": "A viewer for the plate hierarchy a reconstruction model is built from",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "check:platetree": "node scripts/check_platetree.mjs"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "lil-gui": "^0.21.0",
+    "three": "^0.185.1"
+  },
+  "devDependencies": {
+    "@types/three": "^0.185.4",
+    "playwright": "^1.62.1",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.5"
+  }
+}

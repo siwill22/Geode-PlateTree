@@ -353,9 +353,26 @@ export class PlateTreeOverlay {
     }
   }
 
+  /** `q` in the GEOGRAPHIC frame -- the frame this overlay's own node vectors
+   *  live in, and what both projectors take. */
   setReferenceRotation(q: Quaternion): void {
     this.projector.setReferenceRotation(q);
     this.flatProjector?.setReferenceRotation(q);
+  }
+
+  /**
+   * How many degrees of longitude one screen pixel is worth on the current
+   * flat map, so a drag can move the map exactly with the pointer at any zoom.
+   *
+   * Read from the live camera through `mapHalfWidth` rather than assumed from
+   * the window width: the map is only as wide as the camera makes it, and half
+   * a map is 180 degrees in both flat Projections. 0 before the first draw, or
+   * on the globe, where a central meridian means nothing.
+   */
+  get degreesPerPixel(): number {
+    if (!isFlat(this.mode)) return 0;
+    const half = this.flatProjector?.mapHalfWidth ?? 0;
+    return half > 0 ? 180 / half : 0;
   }
 
   setRect(rect: Rect): void {
@@ -432,6 +449,11 @@ export class PlateTreeOverlay {
     }
     return best;
   }
+
+  /** Where each Tree Node landed in the last draw, in CSS pixels. Exposed for
+   *  the verification harness -- a central meridian must move nodes sideways
+   *  only, which is a statement about these numbers. */
+  get screenPositions(): ReadonlyMap<number, [number, number]> { return this.screen; }
 
   private project(v: [number, number, number]): [number, number, number] | null {
     return isFlat(this.mode) ? this.flatProjector!.project(v) : this.projector.project(v);

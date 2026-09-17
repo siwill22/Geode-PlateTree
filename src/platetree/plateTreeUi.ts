@@ -13,7 +13,8 @@ export interface PlateTreeViewState {
   projection: ProjectionMode;
   theme: ThemeId;
   treeSource: TreeSource;
-  /** Which longitude sits at the middle of a flat map. */
+  /** Which longitude sits at the middle of a flat map. Not a panel control:
+   *  it is dragged on the map itself, and shown in the status text. */
   centreLon: number;
   showLocked: boolean;
   showLabels: boolean;
@@ -27,7 +28,6 @@ export interface PlateTreeUiHooks {
   onProjection(mode: ProjectionMode): void;
   onTheme(id: ThemeId): void;
   onTreeSource(s: TreeSource): void;
-  onCentreLon(lon: number): void;
   onShowLocked(v: boolean): void;
   onShowLabels(v: boolean): void;
   onColorByGroup(v: boolean): void;
@@ -41,7 +41,6 @@ export class PlateTreeUi {
   private status: HTMLDivElement;
   private circuit: HTMLDivElement;
   private ageController: ReturnType<GUI['add']>;
-  private centreController: ReturnType<GUI['add']>;
   private sourceController: ReturnType<GUI['add']>;
 
   constructor(
@@ -64,13 +63,9 @@ export class PlateTreeUi {
       // field lil-gui does not own.
       .onChange((v: ProjectionMode) => this.hooks.onProjection(v));
 
-    // Live only on a flat map -- the globe has free orbit, which is the same
-    // control by other means. Kept in the panel rather than hidden so its
-    // value is visible when a flat Projection is selected.
-    this.centreController = this.gui
-      .add(this.view, 'centreLon', -180, 180, 1)
-      .name('centre lon')
-      .onChange((v: number) => this.hooks.onCentreLon(v));
+    // No centre-longitude control here on purpose: on a flat map it is dragged
+    // directly, which is how every other map behaves, and a slider alongside it
+    // would be a second way to do the same thing.
 
     this.gui
       .add(this.view, 'theme', ALL_THEMES.map((t) => t.id))
@@ -166,12 +161,6 @@ export class PlateTreeUi {
   }
 
   projectionLabel(mode: ProjectionMode): string { return PROJECTION_LABEL[mode]; }
-
-  /** Grey the centre-longitude slider out on the globe, where it does nothing
-   *  -- an orbiting camera already chooses what faces the viewer. */
-  setCentreEnabled(on: boolean): void {
-    this.centreController.enable(on);
-  }
 
   /** A model with no dynamic polygons has no topological tree to offer, so the
    *  choice is removed rather than left to fail on selection. */

@@ -61,6 +61,19 @@ renderer.setClearColor(new Color(resolveTheme(view.theme).page));
 document.body.appendChild(renderer.domElement);
 
 let controls: OrbitControls = createProjectionControls('globe', camera, renderer.domElement);
+tuneControls();
+
+/**
+ * Take the left button off OrbitControls on a flat map.
+ *
+ * `createProjectionControls` maps it to PAN there, which is the right default
+ * for a flat map in general -- but this viewer spends left-drag on the central
+ * meridian instead, and a plane that both slides under the camera and rotates
+ * beneath itself is impossible to aim. Panning stays on the right button.
+ */
+function tuneControls(): void {
+  if (isFlat(view.projection)) controls.mouseButtons.LEFT = null;
+}
 
 const ocean = new OceanSurface('globe');
 scene.add(ocean.mesh);
@@ -81,7 +94,6 @@ const ui = new PlateTreeUi(view, {
   onProjection: (mode) => { applyProjection(mode); },
   onTheme: (id) => { applyTheme(id); },
   onTreeSource: (src) => { applyTreeSource(src); },
-  onCentreLon: (lon) => { applyCentreLon(lon); },
   onShowPlates: (v) => { applyShowPlates(v); },
   onShowLocked: (v) => { overlay.showLocked = v; },
   onShowLabels: (v) => { overlay.showLabels = v; },
@@ -93,6 +105,7 @@ const ui = new PlateTreeUi(view, {
     // Land fill only when the mosaic is not already covering everything --
     // see applyShowPlates().
     coastlines.landVisible = v && !view.showPlates;
+    coastlines.setPaused(!v);
   },
   onClearSelection: () => { overlay.selected = null; ui.hideCircuit(); refreshStatus(); },
 }, 'Plate Tree');
@@ -111,28 +124,42 @@ function applyAge(age: number): void {
 /**
  * Which longitude sits at the centre of a flat map.
  *
- * One rotation, applied to every layer through the path each already has for
- * the Reference Plate: the meshes rebuild their geometry, the overlay hands it
- * to its projectors. Doing it as a rotation rather than a camera pan is what
- * makes the map still end at its own edges -- panning a camera over a fixed
- * plane would just show empty space past the antimeridian.
+ * One rotation, in the GEOGRAPHIC frame, applied to every layer through the
+ * path each already has for the Reference Plate: the meshes rebuild their
+ * geometry, the overlay hands it to its projectors. Doing it as a rotation
+ * rather than a camera pan is what makes the map still end at its own edges --
+ * panning a camera over a fixed plane would just show empty space past the
+ * antimeridian.
  */
 function applyCentreLon(lon: number): void {
-  view.centreLon = lon;
+  view.centreLon = wrapLon(lon);
   const flat = isFlat(view.projection);
-  const q = centralMeridianRotation(flat ? lon : 0);
-  coastlines?.setCentralMeridian(flat ? lon : 0);
-  plates?.setCentralMeridian(flat ? lon : 0);
-  overlay.setReferenceRotation(q);
+  const at = flat ? view.centreLon : 0;
+  coastlines?.setCentralMeridian(at);
+  plates?.setCentralMeridian(at);
+  overlay.setReferenceRotation(centralMeridianRotation(at));
+  refreshStatus();
+}
+
+/** Longitude wrapped to (-180, 180]. Dragging is unbounded, so the value has to
+ *  come back round rather than clamp at an edge. */
+function wrapLon(lon: number): number {
+  const x = ((lon + 180) % 360 + 360) % 360 - 180;
+  return x === -180 ? 180 : x;
 }
 
 function refreshStatus(): void {
+  if (!manifest) return;
   const s = overlay.stats;
-  if (!s) { ui.setStatus(`${manifest.name}\nage ${view.age.toFixed(0)} Ma`); return; }
+  // The central meridian has no panel control any more -- it is dragged -- so
+  // this is the only place its value is legible.
+  const centre = isFlat(view.projection)
+    ? `   centre ${view.centreLon.toFixed(0)}°  (drag to scroll)` : '';
+  if (!s) { ui.setStatus(`${manifest.name}\nage ${view.age.toFixed(0)} Ma${centre}`); return; }
   const moving = s.links - countLocked();
   ui.setStatus(
     `${manifest.name}  ·  anchored at plate ${manifest.anchor_plate_id}\n`
-    + `age ${view.age.toFixed(0)} Ma   (tree sampled every ${manifest.age_step} Myr)\n`
+    + `age ${view.age.toFixed(0)} Ma   (tree sampled every ${manifest.age_step} Myr)${centre}\n`
     + `${s.plates} plates   ${s.links} links   ${moving} moving / ${s.links - moving} locked\n`
     + `${s.patched} patched   ${s.groups} locked groups   root${s.roots.length > 1 ? 's' : ''} ${s.roots.join(', ')}`,
   );
@@ -227,6 +254,7 @@ function applyProjection(mode: ProjectionMode): void {
   camera = createProjectionCamera(mode, innerWidth / innerHeight) as typeof camera;
   controls.dispose();
   controls = createProjectionControls(mode, camera, renderer.domElement);
+  tuneControls();
   ocean.setProjection?.(mode);
   coastlines?.setProjection(mode);
   plates?.setProjection(mode);
@@ -235,7 +263,6 @@ function applyProjection(mode: ProjectionMode): void {
   // the globe and restored on the way back out -- not silently kept, which
   // would leave the globe rotated for a reason the panel no longer shows.
   applyCentreLon(view.centreLon);
-  ui.setCentreEnabled(isFlat(mode));
 }
 
 function applyTheme(id: ThemeId): void {
@@ -279,8 +306,14 @@ function applyTreeSource(src: TreeSource): void {
 function applyShowPlates(on: boolean): void {
   view.showPlates = on;
   if (plates) {
-    plates.land.visible = on;
+    // Visibility before pausing, both ways round: the rebuild that unpausing
+    // triggers skips whatever is still hidden at that moment.
+    plates.landVisible = on;
     plates.lines.visible = on;
+    // The mosaic is the heaviest geometry here by a wide margin. Without this
+    // it went on rebuilding itself on every age step and every drag frame
+    // while switched off.
+    plates.setPaused(!on);
   }
   if (coastlines) coastlines.landVisible = view.showCoastlines && !on;
 }
@@ -351,7 +384,6 @@ async function boot(): Promise<void> {
   applyTheme(view.theme);
   applyShowPlates(view.showPlates);
   ui.setAgeRange(manifest.age_min, manifest.age_max);
-  ui.setCentreEnabled(isFlat(view.projection));
   ui.setTopologicalAvailable(topoTree !== null);
   applyAge(manifest.age_min);
 
@@ -365,6 +397,9 @@ async function boot(): Promise<void> {
     presentPlates: () => overlay.currentFrame?.present ?? [],
     setProjection: (mode: ProjectionMode) => { applyProjection(mode); ui.refreshDisplay(); },
     setCentreLon: (lon: number) => { applyCentreLon(lon); ui.refreshDisplay(); },
+    centreLon: () => view.centreLon,
+    nodeScreens: () => Object.fromEntries(overlay.screenPositions),
+    degreesPerPixel: () => overlay.degreesPerPixel,
     setTreeSource: (src: TreeSource) => { applyTreeSource(src); ui.refreshDisplay(); },
     setShowPlates: (v: boolean) => { applyShowPlates(v); ui.refreshDisplay(); },
     nodeMode: () => overlay.nodeMode,
@@ -396,17 +431,61 @@ addEventListener('resize', () => {
 // A plain click fights OrbitControls on the globe, so only treat a pointerup
 // as a selection when the pointer barely moved since pointerdown.
 let downAt: [number, number] | null = null;
-renderer.domElement.addEventListener('pointerdown', (e) => { downAt = [e.clientX, e.clientY]; });
+
+/**
+ * Left-drag on a flat map scrolls the central meridian.
+ *
+ * The horizontal distance is converted at the map's own scale
+ * (overlay.degreesPerPixel, measured through the live camera), so the ground
+ * keeps up with the pointer at any zoom rather than sliding at a fixed rate.
+ * Vertical movement is ignored: the map has no wrap in latitude, and mixing a
+ * camera pan into the same gesture makes the two impossible to tell apart.
+ * OrbitControls' right-button pan and the wheel still do their usual jobs.
+ */
+let dragLon: { x: number; lon: number } | null = null;
+/** Set by pointermove, consumed once per animation frame. A drag can fire
+ *  several moves between frames, and each applied one rebuilds every mesh. */
+let pendingLon: number | null = null;
+
+renderer.domElement.addEventListener('pointerdown', (e) => {
+  downAt = [e.clientX, e.clientY];
+  if (e.button === 0 && isFlat(view.projection)) {
+    dragLon = { x: e.clientX, lon: view.centreLon };
+    renderer.domElement.setPointerCapture(e.pointerId);
+  }
+});
+
+renderer.domElement.addEventListener('pointermove', (e) => {
+  if (!dragLon) return;
+  // Before the first draw the map's width is unknown; a full window-width drag
+  // being a full turn is the right order of magnitude to fall back to.
+  const degPerPx = overlay.degreesPerPixel || 360 / innerWidth;
+  // Drag right, map moves right: a feature's display longitude is its true
+  // longitude MINUS the central meridian, so moving it east lowers the centre.
+  pendingLon = dragLon.lon - (e.clientX - dragLon.x) * degPerPx;
+});
+
+function endDrag(e: PointerEvent): void {
+  if (!dragLon) return;
+  dragLon = null;
+  if (renderer.domElement.hasPointerCapture(e.pointerId)) {
+    renderer.domElement.releasePointerCapture(e.pointerId);
+  }
+}
+
 renderer.domElement.addEventListener('pointerup', (e) => {
+  endDrag(e);
   if (!downAt) return;
   const moved = Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]);
   downAt = null;
   if (moved < 4) selectAt(e.clientX, e.clientY);
 });
+renderer.domElement.addEventListener('pointercancel', endDrag);
 
 const clock = new Clock();
 function animate(): void {
   requestAnimationFrame(animate);
+  if (pendingLon !== null) { applyCentreLon(pendingLon); pendingLon = null; }
   controls.update();
   clock.getDelta();
   renderer.render(scene, camera);

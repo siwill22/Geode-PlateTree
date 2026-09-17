@@ -3,7 +3,9 @@ import { Vector3 } from 'three';
 import { meridianCrossing } from '../../vendor/deep-time-map/js/index.js';
 
 import { lonLatToVec3, vec3ToLonLat } from './constants';
-import { conjugateQuaternion, rotateVector, type Quaternion } from './rotation';
+import {
+  conjugateQuaternion, rotateVector, toRenderFrameRotation, type Quaternion,
+} from './rotation';
 import { referencePlateProjectedPosition, type ProjectionMode } from './projection';
 
 type Projected = [number, number, number] | null;
@@ -37,6 +39,10 @@ export class FlatProjector {
   private p = new Vector3();
   private w = 0;
   private h = 0;
+  /** The reference rotation in the RENDER frame -- every internal use of it
+   *  (`referencePlateProjectedPosition`, `reanchor`) goes through
+   *  `lonLatToVec3`, which is render-frame. Set from a GEOGRAPHIC-frame
+   *  quaternion; see setReferenceRotation(). */
   private qRef: Quaternion = [0, 0, 0, 1];
   /** Which flat Projection to lay the reanchored point onto. Plate Carrée by
    *  default, so every existing caller is unchanged. */
@@ -52,8 +58,23 @@ export class FlatProjector {
     this.camera = camera;
   }
 
+  /**
+   * `q` is in the GEOGRAPHIC frame (z through the pole) -- the same contract as
+   * `ThreeProjector.setReferenceRotation()` and the same frame as the vectors
+   * `project()` is handed, so one overlay can drive both projectors with one
+   * rotation.
+   *
+   * It is converted to the render frame here because everything downstream of
+   * it -- `referencePlateProjectedPosition()` and `reanchor()` -- rotates
+   * `lonLatToVec3()` output, which is render-frame (y through the pole).
+   * Storing the geographic quaternion and using it there rotates about the
+   * wrong axis: a rotation about the geographic pole becomes a rotation about
+   * render z, i.e. about the horizontal axis through (-90, 0). A central
+   * meridian then swings the map about a point on the equator instead of
+   * sliding it sideways, and a Reference Plate tips it over.
+   */
   setReferenceRotation(q: Quaternion): void {
-    this.qRef = q;
+    this.qRef = toRenderFrameRotation(q);
   }
 
   setFlatMode(mode: ProjectionMode): void {

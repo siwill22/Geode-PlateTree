@@ -250,7 +250,17 @@ export class Coastlines {
     this.setAge(0);
   }
 
-  set landVisible(v: boolean) { this.land.visible = v; }
+  /** Showing land again after it was hidden has to rebuild: setAge() skips the
+   *  land half while it is invisible, so its buffers are whatever the last
+   *  rebuild that did include it left behind. */
+  set landVisible(v: boolean) {
+    const was = this.land.visible;
+    this.land.visible = v;
+    if (v && !was && this.landStale) this.setAge(this.currentAge);
+  }
+
+  /** The land buffers were not filled by the last rebuild -- see setAge(). */
+  private landStale = false;
 
   /** Whether the CURRENT Theme provides a pen at all (false for Outline
    *  Treatment 'none'). */
@@ -321,9 +331,35 @@ export class Coastlines {
     this.setAge(this.currentAge);
   }
 
+  /**
+   * Stop rebuilding geometry while nothing is drawing it.
+   *
+   * Every rebuild walks the whole vertex set on the CPU, which for a full
+   * static-polygon mosaic is hundreds of thousands of vertices -- easily the
+   * largest cost in a viewer that rebuilds on a drag rather than only on a
+   * discrete change. A hidden set paid that cost in full for a picture nobody
+   * could see. The age and central meridian asked for while paused are still
+   * recorded, and unpausing applies them, so this is invisible apart from the
+   * time it takes.
+   */
+  setPaused(on: boolean): void {
+    if (on === this.paused) return;
+    this.paused = on;
+    if (!on && this.stale) this.setAge(this.currentAge);
+  }
+
+  private paused = false;
+  /** A rebuild was asked for and skipped, so the buffers no longer match
+   *  `currentAge`/`centralMeridianDeg`. */
+  private stale = false;
+
   /** Rebuild the visible line and land sets for a reconstruction age. */
   setAge(age: number): void {
     this.currentAge = age;
+    if (this.paused) { this.stale = true; return; }
+    this.stale = false;
+    const buildLand = this.land.visible;
+    this.landStale = !buildLand;
     let lw = 0;   // line float cursor
     let vw = 0;   // land vertex count
     let iw = 0;   // land index cursor
@@ -396,7 +432,13 @@ export class Coastlines {
         px = cx; py = cy; pz = cz;
       }
 
-      if (line.triangles && line.landPoints) {
+      // Skip the whole land half when nothing is drawing it. It is the larger
+      // half -- a triangulated polygon carries far more vertices than its
+      // outline -- and a wrapper that shows the plate mosaic hides this land
+      // fill while leaving the outlines on, so it was being rebuilt in full
+      // every drag frame for a mesh with `visible = false`. See landVisible's
+      // setter for how it comes back.
+      if (buildLand && line.triangles && line.landPoints) {
         const lp = line.landPoints;
         const m = lp.length / 3;
         for (let i = 0; i < m; i++) {

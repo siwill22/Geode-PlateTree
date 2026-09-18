@@ -26,6 +26,7 @@ from prep_coastlines import export_geometry, export_rotations  # noqa: E402
 from prep_staticpolygons import export_static_polygons  # noqa: E402
 from prep_plate_names import export_plate_names  # noqa: E402
 from prep_platetree import export_plate_tree  # noqa: E402
+from prep_boundaries import export_boundaries  # noqa: E402
 
 
 def main():
@@ -133,6 +134,18 @@ def main():
     elif not dynamic_files:
         print("\nno dynamic polygons in this model -- no topological tree")
 
+    # Resolved plate-boundary topologies -- a subdued backdrop, not this
+    # viewer's own subject. Needs the same dynamic (topological) polygons the
+    # topological tree does, so it is skipped under the same condition.
+    has_boundaries = False
+    if dynamic_files:
+        print(f"\nexporting boundary topologies over {len(ages)} ages ...")
+        export_boundaries(args.model, out / "boundaries", args.age_min, args.age_max,
+                          args.age_step, args.anchor)
+        has_boundaries = True
+    else:
+        print("\nno dynamic polygons in this model -- no boundary topologies")
+
     manifest = {
         "id": recon_id,
         "name": args.name,
@@ -159,6 +172,8 @@ def main():
     if has_topological:
         manifest["plate_tree_topological"] = "platetree/chains_topological.bin"
         manifest["topological_tree_ages"] = topo_ages
+    if has_boundaries:
+        manifest["boundaries"] = "boundaries/boundaries.json"
     if has_plate_names:
         manifest["static_polygons"]["plate_names"] = "staticpolygons/plate_names.json"
     (out / "manifest.json").write_text(json.dumps(manifest, indent=2))

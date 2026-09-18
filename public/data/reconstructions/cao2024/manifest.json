@@ -22,5 +22,6 @@
   "has_plate_names": true,
   "tree_ages": 361,
   "plate_tree_topological": "platetree/chains_topological.bin",
-  "topological_tree_ages": 361
+  "topological_tree_ages": 361,
+  "boundaries": "boundaries/boundaries.json"
 }

@@ -241,6 +241,24 @@ function groupColor(group: number, lightness: 'light' | 'dark'): string {
 
 const DEG = Math.PI / 180;
 
+/** Trace a 5-point star, first point straight up, into the context's current
+ *  path -- caller does beginPath()/fill()/stroke(). */
+function traceStar(
+  ctx: CanvasRenderingContext2D, cx: number, cy: number, rOuter: number, rInner: number,
+): void {
+  const spikes = 5;
+  const step = Math.PI / spikes;
+  let rot = -Math.PI / 2;
+  ctx.moveTo(cx + Math.cos(rot) * rOuter, cy + Math.sin(rot) * rOuter);
+  for (let i = 0; i < spikes; i++) {
+    rot += step;
+    ctx.lineTo(cx + Math.cos(rot) * rInner, cy + Math.sin(rot) * rInner);
+    rot += step;
+    ctx.lineTo(cx + Math.cos(rot) * rOuter, cy + Math.sin(rot) * rOuter);
+  }
+  ctx.closePath();
+}
+
 /** Great-circle interpolation between two unit vectors, so a long link follows
  *  the sphere instead of cutting through it. gprm draws a straight line in
  *  lon/lat, which is wrong on a sphere and visibly so for a long link. */
@@ -525,7 +543,9 @@ export class PlateTreeOverlay {
       this.ctx.setLineDash(patched ? this.style.patchedDash : []);
       this.ctx.strokeStyle = lit ? this.style.highlight
         : locked ? this.style.lockedLink : this.style.movingLink;
-      this.ctx.lineWidth = lit ? 2.6 : locked ? 0.8 : 1.6;
+      // +50% over the original 2.6 / 0.8 / 1.6, so links read clearly at a
+      // glance rather than needing to be sought out.
+      this.ctx.lineWidth = lit ? 3.9 : locked ? 1.2 : 2.4;
       this.ctx.stroke();
     }
     this.ctx.setLineDash([]);
@@ -542,8 +562,19 @@ export class PlateTreeOverlay {
       const lit = onCircuit.has(node.plateId);
 
       this.ctx.beginPath();
-      const r = isRoot ? 5.5 : isSel ? 5 : lit ? 3.6 : 2.6;
-      this.ctx.arc(s[0], s[1], r, 0, Math.PI * 2);
+      // +50% over the original 5.5 / 5 / 3.6 / 2.6.
+      const r = isRoot ? 8.25 : isSel ? 7.5 : lit ? 5.4 : 3.9;
+      if (isRoot) {
+        // A Root Plate -- the plate closest to the anchor (plate 0) along its
+        // own path, i.e. the top of a chain -- gets a star instead of a circle
+        // so it reads as a distinct KIND of node, not just a bigger one. The
+        // outer radius is inflated a touch: a star's point-to-point silhouette
+        // looks smaller than a disc of the same radius, and this keeps its
+        // apparent size matched to what a plain circle at `r` would have been.
+        traceStar(this.ctx, s[0], s[1], r * 1.15, r * 0.46);
+      } else {
+        this.ctx.arc(s[0], s[1], r, 0, Math.PI * 2);
+      }
       this.ctx.fillStyle = isRoot ? this.style.root
         : lit ? this.style.highlight
         : this.colorByGroup ? groupColor(node.group, this.lightness)

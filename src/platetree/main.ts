@@ -6,7 +6,9 @@ import type { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { Coastlines, fetchCoastlineData } from '../core/coastlines';
 import { OceanSurface } from '../core/oceanSurface';
 import { createMaskTexture } from '../core/mask';
-import { DEFAULT_THEME, resolveTheme, type ThemeId } from '../core/theme';
+import {
+  applyChromeLightness, DEFAULT_THEME, resolveTheme, type ResolvedTheme, type ThemeId,
+} from '../core/theme';
 import {
   createProjectionCamera, createProjectionControls, isFlat,
   updateProjectionCameraAspect, type ProjectionMode,
@@ -15,6 +17,7 @@ import { fetchStaticPolygonData, assignPlate } from '../core/staticPolygons';
 import { fetchVolumeBytes } from '../core/volume';
 import { vec3ToLonLat, type LonLat } from '../core/constants';
 import { PlateTreeOverlay, parsePlateTree, type PlateTreeData } from '../core/plateTree';
+import { BoundaryOverlay } from '../core/boundaries';
 import { centralMeridianRotation } from '../core/rotation';
 import { PlateTreeUi, type PlateTreeViewState, type TreeSource } from './plateTreeUi';
 
@@ -36,6 +39,7 @@ interface Manifest {
   plate_tree: string;
   plate_tree_topological?: string;
   has_topological_tree?: boolean;
+  boundaries?: string;
   has_plate_names: boolean;
 }
 
@@ -50,6 +54,7 @@ const view: PlateTreeViewState = {
   colorByGroup: true,
   showCoastlines: true,
   showPlates: true,
+  showTopology: true,
 };
 
 const scene = new Scene();
@@ -78,6 +83,16 @@ function tuneControls(): void {
 const ocean = new OceanSurface('globe');
 scene.add(ocean.mesh);
 
+/** Resolved plate-boundary topologies (ridge/subduction/transform), drawn
+ *  muted underneath the tree -- context for where a circuit's plates actually
+ *  sit relative to real tectonic features, not this viewer's own subject.
+ *  Left unloaded (draw()/setAge() both no-op with no series) for a model with
+ *  no dynamic polygons to resolve -- see prep_boundaries.py. Constructed (and
+ *  so appended to the DOM) BEFORE the tree overlay, so its canvas paints
+ *  underneath the tree's -- neither sets an explicit z-index, so plain DOM
+ *  order is the paint order. */
+const topology = new BoundaryOverlay(camera as never);
+let hasTopology = false;
 const overlay = new PlateTreeOverlay(camera as never);
 let coastlines: Coastlines | null = null;
 /** The full static-polygon mosaic, drawn as a second Coastlines instance --
@@ -102,11 +117,10 @@ const ui = new PlateTreeUi(view, {
     view.showCoastlines = v;
     if (!coastlines) return;
     coastlines.lines.visible = v;
-    // Land fill only when the mosaic is not already covering everything --
-    // see applyShowPlates().
-    coastlines.landVisible = v && !view.showPlates;
+    coastlines.landVisible = v;
     coastlines.setPaused(!v);
   },
+  onShowTopology: (v) => { view.showTopology = v; topology.visible = v; },
   onClearSelection: () => { overlay.selected = null; ui.hideCircuit(); refreshStatus(); },
 }, 'Plate Tree');
 
@@ -117,6 +131,10 @@ function applyAge(age: number): void {
   coastlines?.setAge(age);
   plates?.setAge(age);
   overlay.setAge(age);
+  // Fire-and-forget, like every other reconstruction wrapper's boundary series:
+  // the previous frame stays on screen until the new one resolves rather than
+  // flashing empty, so there is nothing here to await.
+  void topology.setAge(age);
   refreshStatus();
   refreshCircuit();
 }
@@ -138,6 +156,7 @@ function applyCentreLon(lon: number): void {
   coastlines?.setCentralMeridian(at);
   plates?.setCentralMeridian(at);
   overlay.setReferenceRotation(centralMeridianRotation(at));
+  topology.setReferenceRotation(centralMeridianRotation(at));
   refreshStatus();
 }
 
@@ -259,6 +278,7 @@ function applyProjection(mode: ProjectionMode): void {
   coastlines?.setProjection(mode);
   plates?.setProjection(mode);
   overlay.setCamera(camera, mode);
+  topology.setCamera(camera, mode);
   // A central meridian means nothing on a sphere, so it is dropped entering
   // the globe and restored on the way back out -- not silently kept, which
   // would leave the globe rotated for a reason the panel no longer shows.
@@ -268,21 +288,73 @@ function applyProjection(mode: ProjectionMode): void {
 function applyTheme(id: ThemeId): void {
   view.theme = id;
   const theme = resolveTheme(id);
+  // The fixed panels (status, circuit, timebar, info) follow lightness only,
+  // never a Theme's roles -- see plateTreeUi.ts's own DARK_CHROME/LIGHT_CHROME
+  // comment for why. A light Theme (Frost, Parchment) with the OLD hardcoded
+  // dark-panel styling put pale text on a dark box sitting on a near-white
+  // globe: legible against neither.
+  applyChromeLightness(theme.lightness);
+  ui.applyLightness(theme.lightness);
   renderer.setClearColor(new Color(theme.page));
   ocean.applyTheme(theme);
   coastlines?.applyTheme(theme);
-  // The mosaic must NOT read as land: with it on, it covers oceanic and
-  // continental crust alike, so painting it the land colour would erase the
-  // land/sea distinction entirely. Sits between water and land instead, with a
-  // near-invisible pen -- there are 2422 rings, and at coastline weight their
-  // outlines bury everything else on the map.
+  // The mosaic's own fill is fully transparent: it exists only to carry the
+  // full static-polygon boundary network (including internal continental/
+  // oceanic subdivisions that the real coastline never draws) as an overlay
+  // pen. Real land/sea colouring comes entirely from `coastlines` beneath it.
   if (plates) {
-    plates.setLandColor(mixHex(theme.water, theme.land, 0.42));
     plates.setLineColor(theme.outline ?? theme.land);
-    plates.setLineOpacity(0.16);
-    plates.setLandOpacity(1);
+    plates.setLineOpacity(0.4);
+    plates.setLandOpacity(0);
+  }
+  // The real continent OUTLINE (as opposed to the mosaic's own separately-
+  // dimmed line above) draws at full Theme strength directly over the real
+  // land fill. A 'contrast'-treatment Theme picks its pen from an
+  // independently authored hue, which reads as a sharp, unrelated colour
+  // against that fill. Blending the pen 40% toward `land` here -- a
+  // PlateTree-local decision, not a change to the shared Theme table --
+  // keeps that legible while softening the clash. 'shade'/'none' treatments
+  // are already low-contrast by construction (docs/adr/0038 in the Geode
+  // repo) and are left untouched, so a Theme like Parchment or Relief still
+  // reads exactly as authored.
+  if (coastlines && theme.outline !== null) {
+    const softened = theme.theme.outline === 'contrast'
+      ? mixHex(theme.outline, theme.land, 0.4)
+      : theme.outline;
+    coastlines.setLineColor(softened);
   }
   overlay.applyTheme(theme);
+  topology.applyTheme(subdued(theme));
+}
+
+/**
+ * A copy of `theme` with its boundary styling muted, for the topology
+ * backdrop. This viewer's subject is the plate-tree links; the resolved
+ * boundaries are context underneath them, so they draw at a fraction of the
+ * weight and opacity the same Theme gives boundaries in a viewer where they
+ * ARE the subject (e.g. Geode's reconstruction wrapper).
+ */
+function subdued(theme: ResolvedTheme): ResolvedTheme {
+  const style: ResolvedTheme['boundaryStyle'] = {};
+  for (const [type, s] of Object.entries(theme.boundaryStyle)) {
+    style[type] = { ...s, stroke: hexToRgba(s.stroke, 0.4), width: s.width * 0.55 };
+  }
+  return {
+    ...theme,
+    boundaryStyle: style,
+    boundaryDecoration: {
+      triangleGap: theme.boundaryDecoration.triangleGap,
+      triangleSize: theme.boundaryDecoration.triangleSize * 0.6,
+    },
+  };
+}
+
+/** A `#rrggbb` hex STRING (what `boundaryStyle` entries carry) at reduced
+ *  alpha, as a `rgba()` CSS colour deep-time-map's canvas drawing accepts
+ *  directly. */
+function hexToRgba(hex: string, alpha: number): string {
+  const n = parseInt(hex.replace(/^#/, ''), 16);
+  return `rgba(${(n >> 16) & 0xff}, ${(n >> 8) & 0xff}, ${n & 0xff}, ${alpha})`;
 }
 
 /** Swap between the tree built from rigid static polygons and the one built
@@ -297,12 +369,11 @@ function applyTreeSource(src: TreeSource): void {
   refreshStatus();
 }
 
-/** Show the whole plate mosaic, or just the continents.
+/** Show the whole plate mosaic's boundary network, or just the continents.
  *
- *  With the mosaic on, the coastline LAND fill is switched off: the mosaic
- *  already covers every plate including the continental ones, and two filled
- *  meshes at the same depth on a flat map would z-fight. The coastline LINES
- *  stay, so continents are still outlined on top of the mosaic. */
+ *  The mosaic's own fill is always transparent (see applyTheme()), so it
+ *  never competes with the coastline LAND fill underneath -- both can be on
+ *  at once. Turning the mosaic off just removes its boundary lines. */
 function applyShowPlates(on: boolean): void {
   view.showPlates = on;
   if (plates) {
@@ -315,7 +386,7 @@ function applyShowPlates(on: boolean): void {
     // while switched off.
     plates.setPaused(!on);
   }
-  if (coastlines) coastlines.landVisible = view.showCoastlines && !on;
+  if (coastlines) coastlines.landVisible = view.showCoastlines;
 }
 
 /** Blend two 0xrrggbb colours, `t` of the way from `a` to `b`. */
@@ -350,6 +421,9 @@ async function boot(): Promise<void> {
     manifest.plate_tree_topological
       ? fetchVolumeBytes(`${base}/${manifest.plate_tree_topological}`)
       : Promise.resolve(null),
+    manifest.boundaries
+      ? topology.load(`${base}/${manifest.boundaries}`).then(() => { hasTopology = true; })
+      : Promise.resolve(),
   ]);
   polygonData = polys;
 
@@ -380,11 +454,14 @@ async function boot(): Promise<void> {
 
   overlay.load(tree, polys.polygons, polys.table, polys.plateNames);
   overlay.setCamera(camera, view.projection);
+  topology.setCamera(camera, view.projection);
+  topology.visible = view.showTopology;
 
   applyTheme(view.theme);
   applyShowPlates(view.showPlates);
   ui.setAgeRange(manifest.age_min, manifest.age_max);
   ui.setTopologicalAvailable(topoTree !== null);
+  ui.setTopologyAvailable(hasTopology);
   applyAge(manifest.age_min);
 
   window.__platetree = {
@@ -426,6 +503,7 @@ addEventListener('resize', () => {
   renderer.setSize(innerWidth, innerHeight);
   updateProjectionCameraAspect(camera, innerWidth / innerHeight);
   overlay.setRect({ x: 0, y: 0, width: innerWidth, height: innerHeight });
+  topology.setRect({ x: 0, y: 0, width: innerWidth, height: innerHeight });
 });
 
 // A plain click fights OrbitControls on the globe, so only treat a pointerup
@@ -489,6 +567,7 @@ function animate(): void {
   controls.update();
   clock.getDelta();
   renderer.render(scene, camera);
+  topology.draw();
   overlay.draw();
 }
 

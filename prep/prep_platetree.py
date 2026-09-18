@@ -81,6 +81,8 @@ import pygplates
 sys.path.insert(0, "/Users/simon/GIT/GPlatesReconstructionModel")
 from gprm.utils import platetree  # noqa: E402
 
+from prep_staticpolygons import CONTINENTAL_FEATURE_TYPES  # noqa: E402
+
 # Float guard, in degrees, for "is this rotation the identity". Not a physical
 # threshold: stage rotations for plates in the same group are composed along
 # different paths, so they agree to float dust rather than bit-exactly. The
@@ -204,28 +206,54 @@ def _ring_key(fid, points):
     return (fid, len(coords), hashlib.blake2b(coords.tobytes(), digest_size=16).hexdigest())
 
 
-def defining_polygon_indices(reconstructed_polygons, polygon_index_of):
+def defining_polygon_indices(reconstructed_polygons, polygon_index_of, continental_types):
     """Which polygon defines each plate's node at this age.
 
-    Mirrors `get_polygon_centroids()`: the plate's LARGEST polygon, chosen
-    independently at each age. That choice is genuinely discontinuous -- a
-    plate's largest polygon can switch between adjacent ages and move its node
-    by tens of degrees -- and reproducing it exactly is deliberate (ADR-0043).
+    Mirrors `get_polygon_centroids()` with one deliberate departure: a plate
+    that carries ANY continental polygon is node-defined by its largest
+    CONTINENTAL polygon, never by an oceanic fragment of the same plate id --
+    plate 801 (East Antarctica) and 701 (South Africa, in Cao2024's numbering)
+    both carry continental crust plus a skirt of surrounding oceanic static
+    polygon under the same reconstruction plate id, and gprm's own largest-of-
+    all-types rule can pick the oceanic one, landing the node offshore. Only a
+    plate with NO continental polygon at all (the Pacific being the obvious
+    case) falls back to its largest polygon of any type.
+
+    Otherwise mirrors gprm exactly: the plate's largest polygon (within
+    whichever set applies), chosen independently at each age. That choice is
+    genuinely discontinuous -- a plate's largest polygon can switch between
+    adjacent ages and move its node by tens of degrees -- and reproducing that
+    part of the behaviour is deliberate (ADR-0043).
 
     Matched back to the exported ring through the polygon's own PRESENT-DAY
     geometry, which is what geometry.bin actually stores; matching on the
     reconstructed geometry would compare rotated coordinates against unrotated
     ones.
     """
-    best = {}
+    best_any, best_continental = {}, {}
     for rp in reconstructed_polygons:
         feature = rp.get_feature()
         pid = int(feature.get_reconstruction_plate_id())
         area = rp.get_reconstructed_geometry().get_area()
-        if pid not in best or area > best[pid][0]:
-            key = _ring_key(str(feature.get_feature_id()),
-                            rp.get_present_day_geometry().get_points())
-            best[pid] = (area, polygon_index_of.get(key, -1))
+        key = _ring_key(str(feature.get_feature_id()),
+                        rp.get_present_day_geometry().get_points())
+        idx = polygon_index_of.get(key, -1)
+
+        if pid not in best_any or area > best_any[pid][0]:
+            best_any[pid] = (area, idx)
+
+        is_continental = (
+            True if continental_types is None
+            else str(feature.get_feature_type()) in continental_types
+        )
+        if is_continental and (pid not in best_continental or area > best_continental[pid][0]):
+            best_continental[pid] = (area, idx)
+
+    # Continental wins whenever the plate has one at all; the "largest of any
+    # type" fallback then only ever fires for a plate with no continental
+    # polygon, since every other entry is overwritten.
+    best = dict(best_any)
+    best.update(best_continental)
     return {pid: idx for pid, (_, idx) in best.items()}
 
 
@@ -287,6 +315,20 @@ def export_plate_tree(model_name, polygon_files, rotation_files,
     polygon_index_of = {} if topological else build_polygon_index(features)
     age_max = float(max(ages))
 
+    # Static-polygon mode only: which feature TYPE means "continental" is a
+    # per-model fact (see prep_staticpolygons.py's own CONTINENTAL_FEATURE_TYPES
+    # and the comparison-against-the-model's-own-data that established it).
+    # Topological mode has no such table -- resolved plates are not a fixed set
+    # of typed features the way static polygons are -- so it stays on gprm's own
+    # get_polygon_centroids() untouched.
+    continental_types = None
+    if not topological:
+        if model_name not in CONTINENTAL_FEATURE_TYPES:
+            raise SystemExit(
+                f"{model_name}: no continental-feature-type mapping declared in "
+                "prep_staticpolygons.CONTINENTAL_FEATURE_TYPES.")
+        continental_types = CONTINENTAL_FEATURE_TYPES[model_name]
+
     per_age, all_plates = [], set()
     for t in ages:
         t = float(t)
@@ -316,7 +358,8 @@ def export_plate_tree(model_name, polygon_files, rotation_files,
             centroids = platetree.get_polygon_centroids(reconstructed)
             poly_of = None
         else:
-            poly_of = defining_polygon_indices(reconstructed, polygon_index_of)
+            poly_of = defining_polygon_indices(reconstructed, polygon_index_of,
+                                               continental_types)
         group_of = locked_groups(rotation_model, sorted(present), t, age_max, anchor)
 
         present_sorted = sorted(int(p) for p in present)

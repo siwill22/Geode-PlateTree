@@ -97,31 +97,63 @@ def interior_points(polygon, spacing_deg):
     return np.array(out, dtype=np.float64) if out else np.zeros((0, 3))
 
 
-def triangulate_polygon(pts_xyz, polygon, spacing_deg=2.0):
-    """Fill a spherical polygon: returns (vertices, triangle indices).
+def densify_ring(pts_xyz, max_edge_deg):
+    """Insert points along any ring edge longer than `max_edge_deg`, so no
+    boundary segment exceeds it.
 
-    Rotate so the centroid is at the pole, project stereographically,
-    Delaunay-triangulate, then keep only those triangles whose centroid lies
-    inside the polygon -- tested back on the sphere with pygplates, not in the
-    projection.
+    A hand-digitised coastline has vertices every few km; a great many static
+    OCEANIC polygons instead have a handful of vertices joined by long,
+    straight (in the geological sense -- fracture zones, coarse plate-boundary
+    segments) edges spanning tens of degrees. `interior_points()`'s grid can
+    sit well clear of such an edge without being sparse in absolute terms, and
+    Delaunay then has no vertex anywhere near the middle of that edge to anchor
+    a triangle against -- leaving a real gap hugging the edge for its whole
+    length. It costs little of the polygon's total AREA (so the coverage
+    check in `triangulate_polygon` mostly does not catch it) but reads as a
+    long, visually obvious sliver, which is why this shows up on ocean crust
+    and almost never on a continent: measured directly, one 27-vertex, 12.8
+    degree-edge Pacific-region polygon came out 90% covered by area yet had a
+    triangle missing 45% of its own area sitting right on that edge; adding
+    points along the edge (not just inside the polygon) took it to 99.9%.
 
-    Delaunay alone would fill the convex hull, which is wrong for anything
-    concave (every real coastline). Filtering by a spherical inside-test handles
-    concavity without needing a planar polygon library, and keeps the authority
-    for "inside" with pygplates.
+    Points are inserted by spherical interpolation (slerp) between the two
+    original endpoints, so they land exactly on the true great-circle edge
+    rather than a chord approximation of it.
+    """
+    max_edge_rad = np.radians(max_edge_deg)
+    n = len(pts_xyz)
+    out = []
+    for i in range(n):
+        a = pts_xyz[i]
+        b = pts_xyz[(i + 1) % n]
+        out.append(a)
+        ang = np.arccos(np.clip(np.dot(a, b), -1.0, 1.0))
+        if ang <= max_edge_rad:
+            continue
+        steps = int(np.ceil(ang / max_edge_rad))
+        sin_ang = np.sin(ang)
+        for k in range(1, steps):
+            t = k / steps
+            if sin_ang < 1e-9:
+                p = a
+            else:
+                p = (np.sin((1 - t) * ang) * a + np.sin(t * ang) * b) / sin_ang
+            out.append(p / np.linalg.norm(p))
+    return np.array(out)
+
+
+def _triangulate_polygon_once(pts_xyz, polygon, inner):
+    """One attempt at `triangulate_polygon`, given a fixed interior point set.
+
+    Split out so the caller can retry at finer spacing without duplicating the
+    projection/Delaunay/inside-test machinery.
     """
     from scipy.spatial import Delaunay, QhullError
 
-    if len(pts_xyz) < 3:
-        return np.zeros((0, 3), dtype=np.float32), np.zeros((0, 3), dtype=np.uint32)
-
-    inner = interior_points(polygon, spacing_deg)
-    verts = np.vstack([pts_xyz, inner]) if len(inner) else pts_xyz
-    pts_xyz = verts
-    n = len(pts_xyz)
-
-    centroid = pts_xyz.mean(axis=0)
     empty = (np.zeros((0, 3), dtype=np.float32), np.zeros((0, 3), dtype=np.uint32))
+    verts = np.vstack([pts_xyz, inner]) if len(inner) else pts_xyz
+
+    centroid = verts.mean(axis=0)
     norm = np.linalg.norm(centroid)
     if norm < 1e-9:
         return empty
@@ -138,7 +170,7 @@ def triangulate_polygon(pts_xyz, polygon, spacing_deg=2.0):
         vx = np.array([[0, -v[2], v[1]], [v[2], 0, -v[0]], [-v[1], v[0], 0]])
         rot = np.eye(3) + vx + vx @ vx * ((1 - c) / (s * s))
 
-    p = pts_xyz @ rot.T
+    p = verts @ rot.T
     # Stereographic from the south pole; finite for everything but the antipode.
     denom = 1.0 + p[:, 2]
     if np.any(denom < 1e-6):
@@ -152,7 +184,7 @@ def triangulate_polygon(pts_xyz, polygon, spacing_deg=2.0):
 
     keep = []
     for a, b, c_ in tri.simplices:
-        mid = pts_xyz[a] + pts_xyz[b] + pts_xyz[c_]
+        mid = verts[a] + verts[b] + verts[c_]
         m = np.linalg.norm(mid)
         if m < 1e-9:
             continue
@@ -164,14 +196,168 @@ def triangulate_polygon(pts_xyz, polygon, spacing_deg=2.0):
     return verts.astype(np.float32), tris
 
 
+def _triangle_area_sum(verts, tris):
+    if len(tris) == 0:
+        return 0.0
+    a, b, c_ = verts[tris[:, 0]], verts[tris[:, 1]], verts[tris[:, 2]]
+    return float(0.5 * np.linalg.norm(np.cross(b - a, c_ - a), axis=1).sum())
+
+
+def triangulate_polygon(pts_xyz, polygon, spacing_deg=2.0):
+    """Fill a spherical polygon: returns (vertices, triangle indices).
+
+    Rotate so the centroid is at the pole, project stereographically,
+    Delaunay-triangulate, then keep only those triangles whose centroid lies
+    inside the polygon -- tested back on the sphere with pygplates, not in the
+    projection.
+
+    Delaunay alone would fill the convex hull, which is wrong for anything
+    concave (every real coastline). Filtering by a spherical inside-test handles
+    concavity without needing a planar polygon library, and keeps the authority
+    for "inside" with pygplates.
+
+    `interior_points()`'s grid is a FIXED spacing, and a thin or elongated
+    polygon (a coastal basin rather than a broad landmass) can land zero grid
+    points inside it -- Delaunay of the boundary ring alone then has nothing
+    to stop it chording straight across a concave notch, which the inside-test
+    above correctly rejects, leaving a real hole in the render (found by
+    comparing triangulated area against `polygon.get_area()`: a handful of
+    real static polygons came out 30-40% short). Retry at finer spacing until
+    coverage clears a floor or the spacing bottoms out, keeping whichever
+    attempt covered the most -- strictly no worse than the un-retried result.
+
+    The boundary ring is densified first (see `densify_ring`) for a related
+    but distinct reason: a long, sparse edge -- common on oceanic crust, rare
+    on a digitised coastline -- can leave Delaunay with no vertex anywhere
+    near its middle, opening a real gap that hugs the edge without costing
+    enough of the polygon's total AREA for the retry above to notice.
+    """
+    if len(pts_xyz) < 3:
+        return np.zeros((0, 3), dtype=np.float32), np.zeros((0, 3), dtype=np.uint32)
+
+    pts_xyz = densify_ring(pts_xyz, spacing_deg)
+
+    true_area = polygon.get_area()
+    best = None
+    best_coverage = -1.0
+    spacing = spacing_deg
+    for _ in range(5):
+        inner = interior_points(polygon, spacing)
+        verts, tris = _triangulate_polygon_once(pts_xyz, polygon, inner)
+        coverage = (
+            _triangle_area_sum(verts, tris) / true_area if true_area > 1e-12 else 1.0
+        )
+        if coverage > best_coverage:
+            best, best_coverage = (verts, tris), coverage
+        if coverage >= 0.9:
+            break
+        spacing /= 2.0
+    return best
+
+
+def weld_long_edge_endpoints(rings, long_edge_deg=2.0, tol_km=5.0, max_cluster_km=15.0):
+    """Snap the endpoints of long, sparse edges to a shared position across
+    different polygons.
+
+    A long edge -- common on oceanic static polygons, rare on a digitised
+    coastline -- is typically just two vertices with nothing between them, so
+    `densify_ring` fills it in later by SLERPing between them. That is exact
+    PROVIDED both neighbouring polygons' copies of the shared edge start and
+    end at the SAME two points; independent digitisation leaves them close but
+    not always identical (measured directly: 90% of matching long-edge
+    endpoint pairs in Cao2024's static polygons are already exact, but the
+    remainder are off by up to several km). Two edges that agree closely at
+    both ends but not exactly can still diverge in the middle over their full
+    length, which is what turns a small endpoint mismatch into a visible gap
+    OR an overlap along the whole edge -- and, since the polygon-boundary
+    LINE is drawn from these same points, into a short missing stretch of
+    boundary pen too.
+
+    Restricted to long-edge endpoints ONLY, not every vertex: an earlier,
+    unscoped version of this weld (any two vertices within a small tolerance,
+    regardless of edge length) was rejected -- static polygons are dense
+    enough, especially around archipelagos and microplates, that almost every
+    vertex has some OTHER polygon's unrelated vertex nearby, and welding on
+    proximity alone silently merged real, distinct geometry. A long edge is
+    sparse by construction, so this candidate set is small and the false-
+    positive risk that sank the general version does not apply here.
+
+    `rings` is a list of (N_i, 3) float64 arrays. Returns a new list, same
+    shapes, with the long-edge endpoints welded; everything else untouched.
+    """
+    from scipy.spatial import cKDTree
+
+    candidates = []  # (ring_idx, point_idx)
+    for ri, ring in enumerate(rings):
+        n = len(ring)
+        edge_deg = np.degrees(2 * np.arcsin(np.clip(
+            np.linalg.norm(ring - np.roll(ring, -1, axis=0), axis=1) / 2, 0, 1)))
+        long_edge = edge_deg > long_edge_deg
+        for i in range(n):
+            # a vertex is a candidate if EITHER edge touching it is long.
+            if long_edge[i] or long_edge[i - 1]:
+                candidates.append((ri, i))
+
+    if not candidates:
+        return rings
+
+    pts = np.array([rings[ri][pi] for ri, pi in candidates])
+    owner = np.array([ri for ri, _ in candidates])
+    tree = cKDTree(pts)
+    tol_chord = tol_km / 6371.0
+    pairs = tree.query_pairs(r=tol_chord)
+
+    parent = np.arange(len(pts))
+
+    def find(a):
+        while parent[a] != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+
+    for i, j in pairs:
+        if owner[i] == owner[j]:
+            continue
+        ra, rb = find(i), find(j)
+        if ra != rb:
+            parent[rb] = ra
+
+    # Same chain-creep guard as the general weld this replaced: a cluster that
+    # grew implausibly large is left un-welded rather than collapsed. Should
+    # not fire here (long-edge endpoints are sparse), but costs nothing to
+    # keep as a backstop.
+    max_radius_chord = max_cluster_km / 6371.0
+    roots = np.array([find(i) for i in range(len(pts))])
+    welded = pts.copy()
+    for root in np.unique(roots):
+        members = np.nonzero(roots == root)[0]
+        if len(members) < 2:
+            continue
+        mean = pts[members].mean(axis=0)
+        mean = mean / np.linalg.norm(mean)
+        if np.linalg.norm(pts[members] - mean, axis=1).max() > max_radius_chord:
+            continue
+        welded[members] = mean
+
+    out = [r.copy() for r in rings]
+    for (ri, pi), wp in zip(candidates, welded):
+        out[ri][pi] = wp
+    return out
+
+
 def export_geometry(coastline_files, out_path, spacing_deg):
     """Write present-day polylines with plate id and valid time."""
     features = pygplates.FeatureCollection()
     for f in coastline_files:
         features.add(pygplates.FeatureCollection(str(f)))
 
-    lines = []
-    plate_ids = set()
+    # First pass: gather every polygon's boundary ring so long shared edges
+    # can be welded ACROSS features before anything is triangulated -- doing
+    # it per-feature would have nothing to weld against. Polylines (bare
+    # coastlines with no fill) are not part of this: they don't tile the
+    # sphere against a neighbour the way static polygons do.
+    entries = []
+    polygon_rings = []
     for feature in features:
         plate_id = feature.get_reconstruction_plate_id()
         begin, end = feature.get_valid_time()
@@ -190,19 +376,40 @@ def export_geometry(coastline_files, out_path, spacing_deg):
             )
             if len(pts) < 2:
                 continue
+            is_polygon = isinstance(geom, pygplates.PolygonOnSphere)
+            ring_idx = None
+            if is_polygon:
+                ring_idx = len(polygon_rings)
+                polygon_rings.append(pts)
+            entries.append((plate_id, appear, disappear, is_polygon, pts, ring_idx))
 
-            land_pts = np.zeros((0, 3), dtype=np.float32)
-            tris = np.zeros((0, 3), dtype=np.uint32)
-            if isinstance(geom, pygplates.PolygonOnSphere):
-                land_pts, tris = triangulate_polygon(pts, geom, spacing_deg)
-                # A PolygonOnSphere does not repeat its first point. Triangulate
-                # on the open ring, then close it so the client can draw every
-                # line the same way, as a strip.
-                pts = np.vstack([pts, pts[:1]])
+    welded_rings = weld_long_edge_endpoints(polygon_rings)
 
-            lines.append((plate_id, appear, disappear,
-                          pts.astype(np.float32), land_pts, tris))
-            plate_ids.add(plate_id)
+    lines = []
+    plate_ids = set()
+    for plate_id, appear, disappear, is_polygon, pts, ring_idx in entries:
+        land_pts = np.zeros((0, 3), dtype=np.float32)
+        tris = np.zeros((0, 3), dtype=np.uint32)
+        if is_polygon:
+            # Densify before export, not just before triangulation: the
+            # client draws each consecutive pair of exported points as a
+            # straight 3D chord. On the globe, a chord between two widely
+            # spaced vertices dips below R_SURFACE at its midpoint (the
+            # sagitta), so the opaque ocean sphere behind it occludes the
+            # middle of the line -- a gap in the pen that has nothing to do
+            # with polygon topology. Densifying keeps every chord's sagitta
+            # under the coastline's radial clearance above the surface.
+            pts = densify_ring(welded_rings[ring_idx], spacing_deg)
+            polygon = pygplates.PolygonOnSphere(pts)
+            land_pts, tris = triangulate_polygon(pts, polygon, spacing_deg)
+            # A PolygonOnSphere does not repeat its first point. Triangulate
+            # on the open ring, then close it so the client can draw every
+            # line the same way, as a strip.
+            pts = np.vstack([pts, pts[:1]])
+
+        lines.append((plate_id, appear, disappear,
+                      pts.astype(np.float32), land_pts, tris))
+        plate_ids.add(plate_id)
 
     with open(out_path, "wb") as fh:
         fh.write(b"ESCL")

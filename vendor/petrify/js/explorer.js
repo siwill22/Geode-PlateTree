@@ -8,7 +8,7 @@
  * of them, roughly 8 lines of plumbing per line of genuine decision. This module is
  * that plumbing, written once.
  *
- *     import { mountExplorer } from 'deep-time-map/js/explorer.js';
+ *     import { mountExplorer } from 'petrify/js/explorer.js';
  *     mountExplorer(await (await fetch('view.json')).json(),
  *                   document.getElementById('app'));
  *
@@ -19,7 +19,7 @@
  * Geode's docs/adr/0046.
  *
  * The recipe is data, not code: it round-trips through JSON, which is what lets a
- * Python API emit it (deep_time_map's sibling `geode` package) and what makes the
+ * Python API emit it (petrify's sibling `geode` package) and what makes the
  * provenance drawer able to show the exact calls that produced the page.
  */
 

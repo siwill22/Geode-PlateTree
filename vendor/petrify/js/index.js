@@ -1,5 +1,5 @@
 /*
- * deep-time-map -- plate reconstructions rendered in the browser.
+ * petrify -- plate reconstructions rendered in the browser.
  *
  * Layers talk to their host through one method:
  *

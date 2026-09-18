@@ -127,7 +127,7 @@ export class WindGlyphs {
   private material!: MeshBasicMaterial;
 
   /** Re-colour to a Theme. Glyphs claim `accentCool`, the same role velocity
-   *  arrows take in deep-time-map: both are "an arrow showing a vector field",
+   *  arrows take in petrify: both are "an arrow showing a vector field",
    *  and giving them one role is what stops a future overlay inventing a tenth
    *  colour. */
   applyTheme(theme: ResolvedTheme): void {

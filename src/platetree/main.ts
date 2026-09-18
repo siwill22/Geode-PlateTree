@@ -350,7 +350,7 @@ function subdued(theme: ResolvedTheme): ResolvedTheme {
 }
 
 /** A `#rrggbb` hex STRING (what `boundaryStyle` entries carry) at reduced
- *  alpha, as a `rgba()` CSS colour deep-time-map's canvas drawing accepts
+ *  alpha, as a `rgba()` CSS colour petrify's canvas drawing accepts
  *  directly. */
 function hexToRgba(hex: string, alpha: number): string {
   const n = parseInt(hex.replace(/^#/, ''), 16);

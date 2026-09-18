@@ -1,7 +1,7 @@
 import {
   THEMES, DEFAULT_THEME_ID, themeById, findThemes, outlineColour,
   boundaryStyle, boundaryDecoration, velocityStyle,
-} from '../../vendor/deep-time-map/js/index.js';
+} from '../../vendor/petrify/js/index.js';
 
 /**
  * Themes, Geode side: turning the vendored table's role colours into the
@@ -93,7 +93,7 @@ export interface ResolvedTheme {
   /** Multiplier over every stroke width and decoration size. */
   readonly weight: number;
   readonly lightness: Lightness;
-  /** Ready to hand to deep-time-map's BoundarySeries -- complete per type. */
+  /** Ready to hand to petrify's BoundarySeries -- complete per type. */
   readonly boundaryStyle: Record<string, { stroke: string; width: number; label: string }>;
   readonly boundaryDecoration: { triangleGap: number; triangleSize: number };
   readonly velocityStyle: Record<string, unknown>;

@@ -1,6 +1,6 @@
 import type { Camera, PerspectiveCamera } from 'three';
 import { Vector3 } from 'three';
-import { BoundarySeries, DEFAULT_STYLE } from '../../vendor/deep-time-map/js/index.js';
+import { BoundarySeries, DEFAULT_STYLE } from '../../vendor/petrify/js/index.js';
 
 import { R_SURFACE } from './constants';
 import { maskAt } from './mask';
@@ -11,7 +11,7 @@ import type { ResolvedTheme } from './theme';
 import type { ProjectionMode } from './projection';
 
 /**
- * Plate boundaries, drawn by the vendored deep-time-map library onto a 2D canvas
+ * Plate boundaries, drawn by the vendored petrify library onto a 2D canvas
  * over the WebGL globe.
  *
  * That library talks to its host through exactly one method:
@@ -26,7 +26,7 @@ import type { ProjectionMode } from './projection';
  *
  * ---- Two frames, and why mixing them is safe ------------------------------
  *
- * deep-time-map works in the geographic frame, (cos.lat cos.lon, cos.lat
+ * petrify works in the geographic frame, (cos.lat cos.lon, cos.lat
  * sin.lon, sin.lat), with Z through the north pole. Geode works in three.js's
  * Y-up frame, where the same point is (cos.lat cos.lon, sin.lat, -cos.lat
  * sin.lon). The map between them, (gx, gy, gz) -> (gx, gz, -gy), is a
@@ -49,7 +49,7 @@ import type { ProjectionMode } from './projection';
  * interchangeable. Everything else that reanchors (coastlines, volume
  * shaders, isosurfaces, cutaway) works in the render frame instead because
  * that's the frame their own geometry already lives in; this overlay is the
- * one exception since deep-time-map only ever gives us geographic vectors.
+ * one exception since petrify only ever gives us geographic vectors.
  */
 
 type Projected = [number, number, number] | null;
@@ -106,7 +106,7 @@ export class ThreeProjector {
   }
 
   /**
-   * Optional part of deep-time-map's projector contract: the view axis, in ITS
+   * Optional part of petrify's projector contract: the view axis, in ITS
    * geographic frame, used by `PolygonLayer` to clamp a vertex behind the
    * horizon onto the limb so a straddling continent still fills.
    *
@@ -298,7 +298,7 @@ export class BoundaryOverlay {
    * AggregateOverlay do -- a new camera object is built per Projection, so a
    * captured reference goes stale on every switch.
    *
-   * Boundary Frames were Globe-only until deep-time-map v0.6.0, and the reason
+   * Boundary Frames were Globe-only until petrify v0.6.0, and the reason
    * was the antimeridian rather than the camera: these are LINES, and a flat
    * map is cut open somewhere, so a feature spanning the cut drew straight back
    * across the whole map. Points and aggregate cells never had that problem,

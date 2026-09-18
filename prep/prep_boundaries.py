@@ -9,7 +9,7 @@ features, without competing for attention -- see `src/platetree/main.ts`'s
 `subdued()`, which mutes the Theme's own boundary colours before handing them
 to the overlay.
 
-This repo vendors deep-time-map's `js/` layers only (a viewer needs those to
+This repo vendors petrify's `js/` layers only (a viewer needs those to
 DRAW the data) and not its `python/` exporter, so this reuses Geode's copy
 directly rather than duplicating ~300 lines of pygplates topology-resolution
 code. That means a second `Reconstructions.fetch_<model>()` call beyond the
@@ -27,8 +27,8 @@ import argparse
 import sys
 from pathlib import Path
 
-sys.path.insert(0, "/Users/simon/GIT/Geode/viewer/vendor/deep-time-map/python")
-from deep_time_map import export_series  # noqa: E402
+sys.path.insert(0, "/Users/simon/GIT/Geode/viewer/vendor/petrify/python")
+from petrify import export_series  # noqa: E402
 
 
 def export_boundaries(model_name, out_dir, age_min=0.0, age_max=1800.0,

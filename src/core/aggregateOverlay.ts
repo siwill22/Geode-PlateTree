@@ -1,5 +1,5 @@
 import type { Camera, PerspectiveCamera } from 'three';
-import { AggregateLayer } from '../../vendor/deep-time-map/js/index.js';
+import { AggregateLayer } from '../../vendor/petrify/js/index.js';
 
 import { ThreeProjector } from './boundaries';
 import { FlatProjector } from './flatProjector';
@@ -8,7 +8,7 @@ import type { Quaternion } from './rotation';
 import type { Rect } from './layout';
 
 /**
- * A summarised point dataset (deep-time-map's `AggregateLayer`) drawn by the same
+ * A summarised point dataset (petrify's `AggregateLayer`) drawn by the same
  * "2D canvas over the WebGL globe" technique `core/boundaries.ts` established
  * for Boundary Frames and `core/pointOverlay.ts` reuses for `PointLayer` -- see
  * either for the geographic-frame/render-frame conversion `ThreeProjector`

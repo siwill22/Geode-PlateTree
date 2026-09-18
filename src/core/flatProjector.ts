@@ -1,6 +1,6 @@
 import type { Camera } from 'three';
 import { Vector3 } from 'three';
-import { meridianCrossing } from '../../vendor/deep-time-map/js/index.js';
+import { meridianCrossing } from '../../vendor/petrify/js/index.js';
 
 import { lonLatToVec3, vec3ToLonLat } from './constants';
 import {
@@ -21,17 +21,17 @@ function isIdentityQuat(q: Quaternion): boolean {
 
 /**
  * Plate Carrée counterpart of `core/boundaries.ts`'s `ThreeProjector` --
- * turns a deep-time-map GEOGRAPHIC-frame unit vector into a screen position
+ * turns a petrify GEOGRAPHIC-frame unit vector into a screen position
  * on a flat map instead of the globe -- Plate Carrée or Robinson, via
  * setFlatMode(). `projection.ts`'s
  * `referencePlateFlatPosition()` already does the reanchor-then-reproject
  * work (see its own doc comment); this only adds the geographic xyz -> lon/
- * lat step deep-time-map's vector needs before that call, and the final
+ * lat step petrify's vector needs before that call, and the final
  * camera projection to screen pixels. No horizon/occlusion test -- a flat
  * map has no far side, unlike ThreeProjector's sphere.
  *
  * Exported so `core/aggregateOverlay.ts` can reuse it rather than keep a second
- * copy: both overlays face the identical problem (a deep-time-map geographic
+ * copy: both overlays face the identical problem (a petrify geographic
  * vector -> a screen position on the flat map), and two copies of the
  * reanchor-then-reproject step would drift the moment one is fixed.
  */
@@ -106,7 +106,7 @@ export class FlatProjector {
    * them produces a plausible-looking but wrong map, so they are converted
    * explicitly rather than passed around as bare triples:
    *
-   * - **geographic** (deep-time-map's): z is the pole. `geoVec`/`geoLonLat`.
+   * - **geographic** (petrify's): z is the pole. `geoVec`/`geoLonLat`.
    * - **render** (Geode's `constants.ts`): y is the pole, and the frame
    *   `Quaternion`s from `core/rotation.ts` are expressed in. `lonLatToVec3`.
    */
@@ -141,7 +141,7 @@ export class FlatProjector {
   }
 
   /**
-   * Optional part of deep-time-map's projector contract: how wide half the map
+   * Optional part of petrify's projector contract: how wide half the map
    * is, in screen pixels, used by `PolygonLayer` to spot a ring whose projected
    * vertices jump from one edge to the other.
    *
@@ -210,7 +210,7 @@ export class FlatProjector {
   }
 
   /**
-   * Optional part of deep-time-map's projector contract (see its
+   * Optional part of petrify's projector contract (see its
    * `js/robinson.js`): where a segment crosses this map's edge, so a line layer
    * can break there instead of drawing straight back across the map.
    *

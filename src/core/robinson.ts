@@ -1,13 +1,13 @@
 import {
   ROBINSON_KX, ROBINSON_KY, ROBINSON_STEP, ROBINSON_X, ROBINSON_Y,
   robinsonForward as forwardUnits, robinsonInverse as inverseUnits,
-} from '../../vendor/deep-time-map/js/index.js';
+} from '../../vendor/petrify/js/index.js';
 
 import { R_SURFACE } from './constants';
 
 /**
  * The Robinson projection in Geode's world units — a thin adapter over
- * deep-time-map's copy, which owns the arithmetic.
+ * petrify's copy, which owns the arithmetic.
  *
  * Robinson is a *tabulated* projection with no closed form. Both coordinates
  * come from a 19-entry table at 5° steps of latitude,
@@ -22,7 +22,7 @@ import { R_SURFACE } from './constants';
  * ---- Why this is an adapter and not the implementation ---------------------
  *
  * The table and the two transforms are pure sphere geometry, so by
- * deep-time-map's ADR-0001 they belong there, and did once a second consumer
+ * petrify's ADR-0001 they belong there, and did once a second consumer
  * (StoryMaps) turned out to have grown its own copy of the same numbers with
  * *different* antimeridian behaviour. What stays here is everything that needs
  * Geode's own pipeline and is explicitly downstream under the same rule: the

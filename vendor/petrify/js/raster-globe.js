@@ -506,7 +506,7 @@ export class RasterGlobe {
    * is just the component along the view direction.
    */
   /**
-   * A deep-time-map projector view of this globe.
+   * A petrify projector view of this globe.
    *
    * The library's interface is project(vec3); Globe already has a project(lon, lat)
    * with different semantics, so the adapter keeps both without either shadowing the

@@ -303,7 +303,7 @@ export function outlineColour(theme) {
 }
 
 /**
- * A complete deep-time-map boundary `style` for a Theme.
+ * A complete petrify boundary `style` for a Theme.
  *
  * COMPLETE per type, deliberately. BoundaryLayer merges caller style over
  * DEFAULT_STYLE SHALLOWLY (`{...DEFAULT_STYLE, ...options.style}`), so a

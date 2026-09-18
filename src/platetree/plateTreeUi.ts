@@ -41,7 +41,7 @@ export interface PlateTreeUiHooks {
 }
 
 /** The sans-serif stack the rest of the Geode viewer family uses for its UI
- *  chrome (see e.g. reconstruction.html, deep-time-map's explorer.css).
+ *  chrome (see e.g. reconstruction.html, petrify's explorer.css).
  *  Plate Tree's fixed status/circuit/info text previously used a monospace
  *  stack of its own, which read as a different application. */
 const UI_FONT = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif';
@@ -202,7 +202,7 @@ export class PlateTreeUi {
   // -- time bar -------------------------------------------------------------
 
   /** A wide, bottom, fixed time bar -- the arrangement every other Geode
-   *  viewer uses (see deep-time-map's explorer.css `.dtm-timebar`) -- rather
+   *  viewer uses (see petrify's explorer.css `.dtm-timebar`) -- rather
    *  than a slider buried in the narrow lil-gui column, so the control that
    *  matters most for exploring 1800 Myr of history gets the screen width to
    *  work with. */

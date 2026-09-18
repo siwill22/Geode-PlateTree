@@ -1,6 +1,6 @@
 import type { Camera, PerspectiveCamera } from 'three';
 import { Vector3 } from 'three';
-import { PointLayer } from '../../vendor/deep-time-map/js/index.js';
+import { PointLayer } from '../../vendor/petrify/js/index.js';
 
 import { ThreeProjector } from './boundaries';
 // FlatProjector lived here until BoundaryOverlay needed it too, which would
@@ -15,7 +15,7 @@ import type { Quaternion } from './rotation';
 import type { Rect } from './layout';
 
 /**
- * A symbolised point dataset (deep-time-map's `PointLayer`), drawn by the same
+ * A symbolised point dataset (petrify's `PointLayer`), drawn by the same
  * "2D canvas over the WebGL globe" technique `core/boundaries.ts`'s
  * `BoundaryOverlay` already established for Boundary Frames -- see that
  * module's own doc comment for the geographic-frame/render-frame conversion
@@ -29,7 +29,7 @@ import type { Rect } from './layout';
  * Particle (which stay Globe-only -- they need a raycast against a clicked
  * screen position, a harder problem this doesn't have): `draw()`/`pick()`
  * switch between `ThreeProjector` (Globe) and `FlatProjector` (Plate Carrée)
- * by `mode`, both fed the exact same deep-time-map geographic vector.
+ * by `mode`, both fed the exact same petrify geographic vector.
  */
 export class PointOverlay {
   readonly canvas: HTMLCanvasElement;
@@ -167,7 +167,7 @@ export class PointOverlay {
   /** Indices of the currently-fanned members, or null if no fan is open --
    *  lets a caller tell "pointer is still over one of THIS fan's members"
    *  apart from "pointer moved onto something else", the same distinction
-   *  deep-time-map's own hover.js reference implementation makes. */
+   *  petrify's own hover.js reference implementation makes. */
   get spiderfied(): number[] | null {
     return this.layer?.spiderfied ?? null;
   }
@@ -175,7 +175,7 @@ export class PointOverlay {
   /** How far the open fan reaches from its anchor, in px -- 0 if none is
    *  open. Lets a caller size a keep-alive/hysteresis radius to the fan
    *  actually open (a 2-member pair vs. a 20-member spiral), same as
-   *  deep-time-map's own hover.js reference implementation does. */
+   *  petrify's own hover.js reference implementation does. */
   spiderExtent(): number {
     return this.layer?.spiderExtent() ?? 0;
   }

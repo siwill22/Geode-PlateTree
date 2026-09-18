@@ -216,7 +216,7 @@ export interface ArchiveIndex {
   colormaps: string;
   /** Muller et al., used by the tomography viewer (index.html). */
   coastlines: CoastlineSet;
-  /** deep-time-map series manifest, absent if the boundaries were not exported. */
+  /** petrify series manifest, absent if the boundaries were not exported. */
   boundaries?: string;
   /** Scotese, used by the paleoclimate viewer (climate.html) -- the Li et al.
    *  climate simulations and the Scotese & Wright PaleoDEMs both sit on the
@@ -289,7 +289,7 @@ export interface ReconstructionManifest {
    *  Never derive one from the other. */
   has_static_polygons: boolean;
   coastlines: CoastlineSet;
-  /** deep-time-map series manifest path, present only if has_boundaries. */
+  /** petrify series manifest path, present only if has_boundaries. */
   boundaries?: string;
   /** present only if has_static_polygons -- see docs/adr/0025 (Plate-Frame
    *  Point). Shares its rotations with `coastlines` above (same file: the
@@ -298,7 +298,7 @@ export interface ReconstructionManifest {
   static_polygons?: StaticPolygonSet;
   /** Boucot, Chen & Scotese (2013) paleoclimate-lithology-indicator points --
    *  present only if exported for this Reconstruction Model (Scotese only,
-   *  today) -- see prep_boucot.py and core/pointOverlay.ts. A deep-time-map
+   *  today) -- see prep_boucot.py and core/pointOverlay.ts. A petrify
    *  `points.json` payload (categories/rotations baked in at prep time), not
    *  a separate rotation table of its own. */
   paleolithology?: { points: string };
@@ -307,7 +307,7 @@ export interface ReconstructionManifest {
    *  docs/plans/old-map-viewer.md.
    *
    *  `mountains` is the glyph series, whose positions are real great-circle
-   *  results (docs/adr/0037). `continents` is a deep-time-map polygon payload,
+   *  results (docs/adr/0037). `continents` is a petrify polygon payload,
    *  produced by that library's own exporter rather than by prep_oldmap.py,
    *  which is why it is optional independently of `mountains`. `volcanoes` comes
    *  from prep_oldmap_volcanoes.py, a separate run, and is optional for the same

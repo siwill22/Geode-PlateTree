@@ -7,10 +7,11 @@
  *
  * Supply an Orthographic, or anything of your own that implements it.
  *
- * Note what is NOT here: ./hover.js, ./timeseries-panel.js and ./latitude-panel.js, which
- * wire pointer events to DOM elements. They are the only modules that touch the DOM, and
- * keeping them out of this barrel means a consumer rendering headlessly or in a worker never
- * loads them. Import them directly if you want them.
+ * Note what is NOT here: ./hover.js, ./timeseries-panel.js, ./latitude-panel.js,
+ * ./raster-globe.js and ./explorer.js, which wire pointer events to DOM elements or need a
+ * WebGL context. They are the only modules that touch the DOM, and keeping them out of this
+ * barrel means a consumer rendering headlessly or in a worker never loads them. Import them
+ * directly if you want them.
  */
 
 export { BoundaryLayer, BoundarySeries, DEFAULT_STYLE } from './boundaries.js';
@@ -34,6 +35,16 @@ export {
   DEG, lonLatToVec3, vec3ToLonLat, tangentFrame,
   cross, normalise, tangentTowards, travel, leftOfTravel,
 } from './sphere.js';
+// camera.js's own `robinsonForward` is deliberately NOT re-exported: it takes a third
+// `centreLonDeg` argument that ./robinson.js's same-named two-argument function does not,
+// and one barrel cannot carry both. Import it from './camera.js' directly if you want the
+// pannable form.
+export {
+  angularDistance, viewMatrix, cameraInterpolate,
+  greatCirclePoints, smallCirclePoints,
+  SPILHAUS_CENTER, spilhausViewMatrix, spilhausForward, spilhausInverse, spilhausGrid,
+  ROBINSON_TABLE, ROBINSON_XSCALE, ROBINSON_YSCALE, robinsonForwardDelta,
+} from './camera.js';
 
 export {
   THEMES, ROLE_NAMES, RAMP_NAMES, DEFAULT_THEME_ID,

@@ -20,6 +20,8 @@ import { PlateTreeOverlay, parsePlateTree, type PlateTreeData } from '../core/pl
 import { BoundaryOverlay } from '../core/boundaries';
 import { centralMeridianRotation } from '../core/rotation';
 import { PlateTreeUi, type PlateTreeViewState, type TreeSource } from './plateTreeUi';
+import { LockedGroupFlowPanel } from './lockedGroupFlowPanel';
+import { checkpointIndexAt, FULL_SPHERE_SR, lockedColorAt } from './lockedGroupFlow';
 
 const DATA = `${import.meta.env.BASE_URL}data`;
 const RECON = 'cao2024';
@@ -55,6 +57,7 @@ const view: PlateTreeViewState = {
   showCoastlines: true,
   showPlates: true,
   showTopology: true,
+  showFlows: false,
 };
 
 const scene = new Scene();
@@ -103,6 +106,7 @@ let plates: Coastlines | null = null;
 let manifest: Manifest;
 let tree: PlateTreeData;
 let topoTree: PlateTreeData | null = null;
+const flowPanel = new LockedGroupFlowPanel();
 
 const ui = new PlateTreeUi(view, {
   onAge: (age) => { applyAge(age); },
@@ -121,6 +125,7 @@ const ui = new PlateTreeUi(view, {
     coastlines.setPaused(!v);
   },
   onShowTopology: (v) => { view.showTopology = v; topology.visible = v; },
+  onShowFlows: (v) => { applyShowFlows(v); },
   onClearSelection: () => { overlay.selected = null; ui.hideCircuit(); refreshStatus(); },
 }, 'Plate Tree');
 
@@ -137,6 +142,7 @@ function applyAge(age: number): void {
   void topology.setAge(age);
   refreshStatus();
   refreshCircuit();
+  flowPanel.setAge(age);
 }
 
 /**
@@ -325,6 +331,7 @@ function applyTheme(id: ThemeId): void {
   }
   overlay.applyTheme(theme);
   topology.applyTheme(subdued(theme));
+  flowPanel.applyTheme(theme);
 }
 
 /**
@@ -367,6 +374,27 @@ function applyTreeSource(src: TreeSource): void {
   overlay.setAge(view.age);
   ui.hideCircuit();
   refreshStatus();
+  flowPanel.setData(next, manifest.name, polygonData?.polygons ?? []);
+  flowPanel.setAge(view.age);
+}
+
+/**
+ * Toggle the Locked Group flow diagram, and hand the globe the join that
+ * lets it colour nodes by the same lineage the diagram is showing -- see
+ * PlateTreeOverlay.lineageColorOf's own doc comment. The callback reads
+ * `view.age` and `flowPanel.currentResult` fresh on every call rather than
+ * capturing either, so it needs re-wiring only when flows are switched on or
+ * off, never on an age change or a tree-source swap.
+ */
+function applyShowFlows(on: boolean): void {
+  view.showFlows = on;
+  flowPanel.setVisible(on);
+  overlay.lineageColorOf = on
+    ? (plateId) => {
+      const result = flowPanel.currentResult;
+      return result ? lockedColorAt(result, view.age, plateId) : null;
+    }
+    : null;
 }
 
 /** Show the whole plate mosaic's boundary network, or just the continents.
@@ -462,6 +490,8 @@ async function boot(): Promise<void> {
   ui.setAgeRange(manifest.age_min, manifest.age_max);
   ui.setTopologicalAvailable(topoTree !== null);
   ui.setTopologyAvailable(hasTopology);
+  flowPanel.setData(tree, manifest.name, polys.polygons);
+  flowPanel.setVisible(view.showFlows);
   applyAge(manifest.age_min);
 
   window.__platetree = {
@@ -472,6 +502,38 @@ async function boot(): Promise<void> {
     stats: () => overlay.stats,
     ages: () => tree.ages.length,
     presentPlates: () => overlay.currentFrame?.present ?? [],
+    // Debug/verification only: how much of Earth's surface the active tree
+    // actually models at `age`, and each visible band's own share of it --
+    // see lockedGroupFlow.ts's bucketsForFrame() doc comment for why the
+    // Sankey's area threshold is relative to this number, not to the whole
+    // sphere.
+    flowCoverage: (age: number) => {
+      const r = flowPanel.currentResult;
+      if (!r) return null;
+      const ci = checkpointIndexAt(r.ageRanges, age);
+      return {
+        checkpointIndex: ci,
+        coverageFraction: r.coverageFraction[ci],
+        bandFractions: r.columns[ci].nodes.map((n) => n.value / FULL_SPHERE_SR),
+      };
+    },
+    // Debug/verification only: any Checkpoint where two non-OTHER bands
+    // ended up with the identical colour -- should always be empty, per
+    // lockedGroupFlow.ts's assignLineageHues() palette-slot guarantee.
+    flowColorCollisions: () => {
+      const r = flowPanel.currentResult;
+      if (!r) return null;
+      const hits: { checkpointIndex: number; color: string; count: number }[] = [];
+      r.columns.forEach((col, ci) => {
+        const byColor = new Map<string, number>();
+        for (const n of col.nodes) {
+          if (n.color.startsWith('rgba')) continue; // OTHER's grey, expected to repeat
+          byColor.set(n.color, (byColor.get(n.color) ?? 0) + 1);
+        }
+        for (const [color, count] of byColor) if (count > 1) hits.push({ checkpointIndex: ci, color, count });
+      });
+      return hits;
+    },
     setProjection: (mode: ProjectionMode) => { applyProjection(mode); ui.refreshDisplay(); },
     setCentreLon: (lon: number) => { applyCentreLon(lon); ui.refreshDisplay(); },
     centreLon: () => view.centreLon,
@@ -479,6 +541,7 @@ async function boot(): Promise<void> {
     degreesPerPixel: () => overlay.degreesPerPixel,
     setTreeSource: (src: TreeSource) => { applyTreeSource(src); ui.refreshDisplay(); },
     setShowPlates: (v: boolean) => { applyShowPlates(v); ui.refreshDisplay(); },
+    setShowFlows: (v: boolean) => { applyShowFlows(v); ui.refreshDisplay(); },
     nodeMode: () => overlay.nodeMode,
     debugHide: (what: string) => {
       if (what === 'ocean') ocean.mesh.visible = !ocean.mesh.visible;

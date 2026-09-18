@@ -44,6 +44,63 @@ This viewer shows the hierarchy, on the globe, through time.
 
 **Click a plate** to see its full circuit to the anchor.
 
+### Supercontinent flows (v2)
+
+Toggle **supercontinent flows** to open an alluvial diagram, full-width above
+the time bar: Locked Groups merging and splitting across the whole model,
+0–1800 Ma in one view. Every weight in it — which groups earn their own band,
+how tall a band is, how thick a ribbon is — is **spherical area of
+CONTINENTAL crust only**, not plate count and not oceanic crust: a single
+enormous continental block and a one-plate sliver don't count the same, and a
+Locked Group whose only members are oceanic fragments (the Pacific being the
+extreme case) is invisible here on purpose — it isn't part of the
+supercontinent story, only of the rigid-body-motion one the globe's Locked
+Links already tell.
+
+A band's colour tracks a lineage forward through time — inherited from
+whichever earlier band contributed the most AREA to it — so a colour reads as
+"this mass of crust," not as a raw (and otherwise meaningless-across-ages)
+Locked Group id. **The globe's own nodes pick up the same colour** while the
+panel is open (`colour by group`'s per-age palette is used only while it's
+closed), so the same continental mass reads as the same colour in both views.
+Hover a band for the plate ids it actually contains, its share of Earth's
+surface, and the age range it covers; the vertical marker tracks the time
+bar.
+
+Colours are allocated from a small, fixed, evenly-spaced palette rather than
+grown forever, and a lineage holds its slot only for as long as it is
+visible: this GUARANTEES no two independently moving Locked Groups ever share
+a colour within the same reorganisation event, including the case that broke
+a naive "copy the parent's colour" rule — a group splitting into several
+pieces at once, where every piece's strongest predecessor is the same parent
+and only the piece carrying the largest share of it keeps that colour; the
+rest are allocated fresh ones. `window.__platetree.flowColorCollisions()`
+checks this directly across every Checkpoint the diagram drew, and
+`scripts/shoot_flows.mjs` runs it on every check.
+
+**Column height is absolute, not normalised.** Modelled continental coverage
+itself shrinks with age — measured directly for Cao 2024, ~41% of Earth's
+surface at 0 Ma down to ~12% by 1800 Ma, since deep time only reconstructs
+the continental blocks the model is confident about. A Checkpoint's total
+height is scaled against the richest Checkpoint in the whole diagram, so a
+narrower column in deep time honestly shows "less is known here," rather than
+being stretched to fill the same height as 0 Ma and implying a parity that
+isn't there. The status line states the coverage number outright.
+
+The diagram only redraws at a **reorganisation event** — an age where the
+partition of large-vs-pooled Locked Groups actually changes — rather than at
+every 5 Myr sample, so a stretch of unchanged structure reads as one flat
+plateau instead of hundreds of identical slivers. The size cutoff is a fixed
+fraction of THAT AGE's own modelled continental area, not "the N largest":
+deep in time many groups sit within a sliver of area of each other, and a
+rank-based cutoff would turn every swap among near-tied small groups into a
+spurious event. It is also relative rather than sphere-absolute, since a
+fixed absolute bar would quietly get harder to clear as coverage itself
+shrinks, for a reason that has nothing to do with supercontinent assembly.
+
+Available on both the **static** and **topological** trees; the topological
+tree simply has far fewer plates (46 vs 497 at 0 Ma) to begin with.
+
 ### Node positions differ between the two trees
 
 A static polygon is digitised present-day and rotated, so its node is exported

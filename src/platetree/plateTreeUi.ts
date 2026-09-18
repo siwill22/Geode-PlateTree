@@ -24,6 +24,8 @@ export interface PlateTreeViewState {
   /** The resolved plate-boundary backdrop (ridges/subduction/transform),
    *  drawn muted -- context for the tree, not this viewer's own subject. */
   showTopology: boolean;
+  /** v2: the Locked Group alluvial diagram, full-width above the time bar. */
+  showFlows: boolean;
 }
 
 export interface PlateTreeUiHooks {
@@ -37,6 +39,7 @@ export interface PlateTreeUiHooks {
   onShowCoastlines(v: boolean): void;
   onShowPlates(v: boolean): void;
   onShowTopology(v: boolean): void;
+  onShowFlows(v: boolean): void;
   onClearSelection(): void;
 }
 
@@ -148,6 +151,8 @@ export class PlateTreeUi {
       .onChange((v: boolean) => this.hooks.onShowCoastlines(v));
     this.topologyController = tree.add(this.view, 'showTopology').name('plate boundaries')
       .onChange((v: boolean) => this.hooks.onShowTopology(v));
+    tree.add(this.view, 'showFlows').name('supercontinent flows')
+      .onChange((v: boolean) => this.hooks.onShowFlows(v));
 
     this.status = document.createElement('div');
     this.status.id = 'status';

@@ -325,6 +325,22 @@ export class PlateTreeOverlay {
   selected: number | null = null;
   private lightness: 'light' | 'dark' = 'dark';
 
+  /**
+   * When set, overrides an ordinary node's colour with a lineage colour that
+   * tracks the same mass of crust across ages -- the join
+   * platetree/lockedGroupFlow.ts's lockedColorAt() provides, so the globe
+   * can read as "the same colour as the Sankey band for this landmass"
+   * instead of groupColor()'s per-age-arbitrary hue (see that function's own
+   * "a colour is not an identity" comment -- lineageColorOf is deliberately
+   * the one place that identity exists, and it is owned by the caller, not
+   * this class, since this class has no notion of a Checkpoint). Returns a
+   * colour for every plate the Sankey is currently drawing -- the pooled
+   * OTHER grey for one below its area threshold, same as the diagram shows
+   * -- and null only when the plate has no Sankey data at all (the callback
+   * unset, or not yet computed), which falls through to the ordinary
+   * colorByGroup/plain-grey choice below. */
+  lineageColorOf: ((plateId: number) => string | null) | null = null;
+
   style: PlateTreeStyle = {
     movingLink: '#e8663c',
     lockedLink: 'rgba(160,170,185,0.30)',
@@ -575,10 +591,10 @@ export class PlateTreeOverlay {
       } else {
         this.ctx.arc(s[0], s[1], r, 0, Math.PI * 2);
       }
+      const lineageColor = this.lineageColorOf?.(node.plateId) ?? null;
       this.ctx.fillStyle = isRoot ? this.style.root
         : lit ? this.style.highlight
-        : this.colorByGroup ? groupColor(node.group, this.lightness)
-        : '#cfd6e4';
+        : lineageColor ?? (this.colorByGroup ? groupColor(node.group, this.lightness) : '#cfd6e4');
       this.ctx.fill();
       if (isRoot || isSel) {
         this.ctx.lineWidth = 1.4;

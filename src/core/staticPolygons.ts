@@ -160,9 +160,11 @@ function sphericalTriangleSignedArea(
 /** Area of a present-day static polygon, in steradians. Rotation-invariant
  *  (a rigid rotation doesn't change area), so this is computed once from the
  *  stored present-day ring -- no need to rotate to any particular age first.
- *  Used only to break ties among overlapping candidates in assignPlate()
- *  (see docs/adr/0025: the larger polygon wins). */
-function polygonArea(points: Float32Array): number {
+ *  Used to break ties among overlapping candidates in assignPlate() (see
+ *  docs/adr/0025: the larger polygon wins), and as the weight behind
+ *  platetree/lockedGroupFlow.ts's Sankey -- a Locked Group's mass, not how
+ *  many fragments its id happens to be split across. */
+export function polygonArea(points: Float32Array): number {
   const n = points.length / 3;
   if (n < 3) return 0;
   const ax = points[0], ay = points[1], az = points[2];
@@ -174,6 +176,41 @@ function polygonArea(points: Float32Array): number {
     area += sphericalTriangleSignedArea([ax, ay, az], [bx, by, bz], [cx, cy, cz]);
   }
   return Math.abs(area);
+}
+
+/** Every polygon's own area (steradians), in the same order as `polygons` --
+ *  computed once and reused at every age, since polygonArea() is
+ *  rotation-invariant and does not depend on `age` at all. */
+export function computePolygonAreas(polygons: StaticPolygon[]): Float64Array {
+  return Float64Array.from(polygons, (p) => polygonArea(p.points));
+}
+
+/**
+ * Total area (steradians) of each plate id's geometry AT `age` -- summed
+ * over whichever of that plate's static-polygon fragments are valid then
+ * (the same beginAge/endAge window test assignPlate() uses). A plate id with
+ * several disjoint fragments under it (a continent plus its skirt of
+ * surrounding oceanic crust, both carrying the same reconstruction plate id)
+ * gets their combined area, which is the point: plate COUNT treats such a
+ * plate the same as a single microplate fragment, area does not.
+ *
+ * `areas` is computePolygonAreas(polygons)'s own output, passed in rather
+ * than recomputed here so a caller building this per Frame (e.g.
+ * lockedGroupFlow.ts, once per sampled age) pays the O(vertices) area cost
+ * once for the whole model, not once per age.
+ */
+export function plateAreasAt(
+  polygons: StaticPolygon[], areas: Float64Array, age: number,
+): Map<number, number> {
+  const out = new Map<number, number>();
+  for (let i = 0; i < polygons.length; i++) {
+    const poly = polygons[i];
+    // Ages increase into the past, so beginAge is the LARGER value -- see
+    // assignPlate()'s identical test above.
+    if (age > poly.beginAge || age < poly.endAge) continue;
+    out.set(poly.plateId, (out.get(poly.plateId) ?? 0) + areas[i]);
+  }
+  return out;
 }
 
 /** Spherical point-in-polygon test: project every polygon vertex onto the
